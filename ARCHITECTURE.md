@@ -31,7 +31,7 @@ Agencies see tickets appear live on a dashboard, and changing a ticket's status 
 | App | Folder | Who | What it does |
 |---|---|---|---|
 | **Backend** (Next.js 15, TypeScript) | repo root | Andy | Receives texts, runs the AI, saves tickets, sends SMS, serves the API routes the dashboard calls |
-| **Dashboard** (Vite + React) | `agency-dashboard/` | teammate | The agencies' view: ticket list, ticket detail, map, filters, stats |
+| **Dashboard** (Vite + React) | `agency-dashboard/` | teammate | The agencies' view: ticket list, ticket detail, filters, stats (map is an add-on) |
 | **Supabase** (Postgres + Realtime) | `supabase/*.sql` | shared | The single source of truth. Both apps talk to it. |
 
 **Rules for the dashboard:**
@@ -47,8 +47,8 @@ Agencies see tickets appear live on a dashboard, and changing a ticket's status 
 | SMS | **[SMS Gateway for Android](https://docs.sms-gate.app)**, Cloud mode | An Android phone with a SIM is the bot's number. It can be anywhere with power and Wi-Fi, needs no carrier registration, and judges text it from their own phones. |
 | AI | **Gemini** via `@google/genai`: `gemini-3.5-flash-lite` (main), `gemini-3.8-flash` (backup) | Free tier. Flash-Lite answers in about 1s; free-tier Flash often returns 503 errors. Every answer must match a JSON schema and is checked with Zod. |
 | Database | **Supabase** | Row Level Security on: anyone can read, only the backend's secret key can write. |
-| Geocoding | Mapbox or Google, biased to Los Angeles | Needed for map pins and duplicate detection. |
-| Map | react-leaflet + OpenStreetMap tiles | No API key needed. |
+| Geocoding | Mapbox or Google, biased to Los Angeles | **Add-on, deferred** with the map. `lat`/`lng` stay null for live tickets until then. |
+| Map | react-leaflet + OpenStreetMap tiles | **Add-on, deferred.** No API key needed when we get to it. |
 | Hosting | **Vercel**, as two projects from the same repo | The backend at the repo root, the dashboard with `agency-dashboard/` as its root folder. |
 
 **Ruled out:**
@@ -70,11 +70,11 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
    1. emergency.ts   keyword check (instant, runs even if the AI fails)
    2. find or create the conversation (60 min window)
    3. triage.ts      SINGLE-TIP AI: category, priority, credibility, suggested action, follow-up question
-   4. geocode.ts     location_text → lat/lng
+   4. geocode.ts     location_text → lat/lng   (add-on, deferred)
    5. store.ts       save ticket + messages → Supabase
    6. reply ──► sms-gate cloud API ──► Android phone ──SMS──► resident        (about 1–2s total)
    7. in the background: analyze.ts   CROSS-TIP AI
-        ├─ SQL: open tickets nearby (same category, ~200 m, 48 h), and this number's recent reports
+        ├─ SQL: open tickets with the same category in the last 48 h, and this number's recent reports
         ├─ Gemini: "is this the same incident?"
         ├─ write duplicate_of / report_count / priority / priority_score / credibility ─► Supabase
         └─ optional second text: "Already reported as #142. We've added yours and raised its priority."
@@ -244,11 +244,11 @@ All routes live on the backend and allow requests from the dashboard's address.
 | # | Task | Status | Unblocks |
 |---|---|---|---|
 | B0 | SMS gateway webhook, single-tip triage, conversation rules | done | |
-| B1 | `supabase/schema.sql` + `seed.sql`: agencies, plus ~15 realistic USC-area tickets including 2 duplicates and 1 spam | next | dashboard D2 |
-| B2 | `store.ts` → Supabase (same functions) | | everything after |
-| B3 | `geocode.ts` | | map, B5 |
+| B1 | `supabase/schema.sql` + `seed.sql`: agencies, plus ~15 realistic USC-area tickets including 2 duplicates and 1 spam | done | dashboard D2 |
+| B2 | `store.ts` → Supabase (same functions) | done | everything after |
+| B3 | `geocode.ts` | deferred (add-on with the map) | map |
 | B4 | Add `credibility` and `suggested_action` to triage; per-number rate limit | | |
-| B5 | `analyze.ts`: duplicates, report counts, priority increases, `priority_score`, flood detection | | |
+| B5 | `analyze.ts`: duplicates (same category, open, last 48 h; the AI compares location + description, no coordinates needed), report counts, priority increases, `priority_score`, flood detection | | |
 | B6 | `/api/tickets/:id` status + message routes (texts the resident) | | dashboard D6 |
 | B7 | `/api/insights` (stats + AI summary) | | dashboard D7 |
 | B8 | Deploy to Vercel, register the phone's webhook once | | demo |
@@ -260,7 +260,7 @@ All routes live on the backend and allow requests from the dashboard's address.
 | D1 | Cut Resources / Alerts / Login / Settings. Build the layout with local sample data **shaped exactly like the `tickets` table**. | Start now; it doesn't wait for anything |
 | D2 | Swap the sample data for Supabase reads plus Realtime | After B1 |
 | D3 | Ticket detail: summary, suggested action, priority reason, credibility, text conversation, linked duplicates | |
-| D4 | Map with pins colored by priority | Needs `lat`/`lng` (seed data has them) |
+| D4 | Map with pins colored by priority | **Add-on, deferred.** Seed data already has `lat`/`lng` |
 | D5 | Filters (agency, category, status, Flagged), sorted by `priority_score` | |
 | D6 | Resolve / Review buttons call `PATCH /api/tickets/:id` | After B6 |
 | D7 | Stats row + AI shift summary from `/api/insights` | After B7 |
@@ -289,15 +289,15 @@ lib/
   emergency.ts   [done] 911 keyword check
   routing.ts     [done] category → agency
   smsgate.ts     [done] gateway send + signature check
-  store.ts       [done, in-memory] → Supabase
-  geocode.ts     [todo]
+  store.ts       [done] Supabase persistence
+  geocode.ts     [deferred] add-on with the map
   analyze.ts     [todo] cross-tip AI
   insights.ts    [todo]
 scripts/
   chat.ts                [done] `npm run chat`: text the bot from the terminal
   register-webhook.ts    [done] `npm run gateway:register -- https://<host>`
 supabase/
-  schema.sql, seed.sql   [todo]
+  schema.sql, seed.sql   [done] (grants.sql: one-time permissions fix)
 agency-dashboard/        teammate's Vite + React app
 ```
 
@@ -355,7 +355,6 @@ cd agency-dashboard && npm run dev                # dashboard on :5173
 4. **Full loop with the dashboard:**
    - A new text appears without refreshing.
    - A duplicate increases the original's count.
-   - The map pin shows up.
    - Resolve texts the resident.
 5. **Production:** repeat steps 3 and 4 against the Vercel URLs the night before judging.
 
@@ -366,7 +365,7 @@ cd agency-dashboard && npm run dev                # dashboard on :5173
 |---|---|
 | The phone goes offline | Keep it plugged in with battery optimization off, and have someone near it during judging. Use the web chat as the backup. |
 | Gemini free-tier limits or 503 errors | Flash-Lite main with Flash backup and a canned reply if both fail. Cache the insights summary. If it gets bad, enable billing. |
-| Duplicate detection misses because a ticket has no coordinates | Fall back to the same category and agency in the last 48 h, and let the AI compare summaries. |
+| Duplicate detection without coordinates (map deferred) | Candidates are open tickets in the same category from the last 48 h; the AI compares location text and descriptions. Add distance filtering when geocoding lands. |
 | The duplicate-text check is held in memory per server instance (Vercel) | Rare at demo volume. Move it to a database table if it shows up. |
 | Schema changes break the other app | Only add columns, and announce each one. |
 | The ngrok URL changes | Re-run `gateway:register`, or deploy to Vercel. |

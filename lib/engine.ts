@@ -12,6 +12,7 @@ import {
   type Channel,
   type Conversation,
   type Ticket,
+  type TicketFields,
 } from "./store";
 import { triage, type TriageResult } from "./triage";
 
@@ -52,61 +53,76 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
   }
 
   convo ??= await createConversation(msg.from, msg.channel);
-  await addMessage(convo.id, "reporter", text, msg.mediaUrl ?? null);
+  const conversation = convo;
+
+  // Independent database calls run together; each is a network round trip.
+  const [inbound, earlier, existingTicket] = await Promise.all([
+    addMessage(conversation.id, "reporter", text, msg.mediaUrl ?? null),
+    listMessages(conversation.id),
+    conversation.ticketId != null ? getTicket(conversation.ticketId) : null,
+  ]);
+  // The list may or may not already include the message saved in parallel.
+  const transcript = [...earlier.filter((m) => m.id !== inbound.id), inbound];
 
   const emergencyKeyword = detectEmergency(text);
-  const transcript = await listMessages(convo.id);
   const result = await triage(transcript);
+
+  // Once a report is flagged as an emergency it stays flagged.
+  const emergency = Boolean(existingTicket?.isEmergency) || Boolean(emergencyKeyword) || Boolean(result?.emergency);
 
   let reply: string;
   let ticket: Ticket | null = null;
-  // Once a report is flagged as an emergency it stays flagged.
-  const wasEmergency = convo.ticketId != null && Boolean((await getTicket(convo.ticketId))?.isEmergency);
-  const emergency = wasEmergency || Boolean(emergencyKeyword) || Boolean(result?.emergency);
-
+  let patch: ConversationPatch = {};
   if (!result) {
     reply = emergency ? EMERGENCY_REPLY : FALLBACK_REPLY;
   } else {
-    ticket = await upsertTicket(convo, ticketFields(result, emergency, msg.mediaUrl ?? null));
-    reply = await nextReply(convo, ticket, result, emergency);
+    ticket = await upsertTicket(conversation, ticketFields(result, emergency, msg.mediaUrl ?? null));
+    ({ reply, patch } = nextReply(conversation, ticket, result, emergency));
   }
 
-  await updateConversation(convo.id, { ticketId: ticket?.id ?? convo.ticketId });
-  await addMessage(convo.id, "bot", reply);
+  await Promise.all([
+    updateConversation(conversation.id, { ...patch, ticketId: ticket?.id ?? conversation.ticketId }),
+    addMessage(conversation.id, "bot", reply),
+  ]);
   return { reply, ticketId: ticket?.id ?? null, emergency };
 }
 
-async function nextReply(
+type ConversationPatch = Parameters<typeof updateConversation>[1];
+
+function nextReply(
   convo: Conversation,
   ticket: Ticket,
   result: TriageResult,
   emergency: boolean,
-): Promise<string> {
+): { reply: string; patch: ConversationPatch } {
   const agency = agencyFor(result.category);
 
   if (emergency) {
-    await updateConversation(convo.id, { state: "submitted" });
-    return `${EMERGENCY_REPLY} We've also logged report #${ticket.id}.`;
+    return { reply: `${EMERGENCY_REPLY} We've also logged report #${ticket.id}.`, patch: { state: "submitted" } };
   }
 
   // Follow-up text after submission: it already enriched the ticket above.
   if (convo.state === "submitted") {
-    return `Thanks, we added that to report #${ticket.id}. Reply NEW to report something else.`;
+    return { reply: `Thanks, we added that to report #${ticket.id}. Reply NEW to report something else.`, patch: {} };
   }
 
   if (result.clarifying_question && convo.questionsAsked < MAX_QUESTIONS) {
-    await updateConversation(convo.id, { questionsAsked: convo.questionsAsked + 1 });
-    return result.clarifying_question;
+    return { reply: result.clarifying_question, patch: { questionsAsked: convo.questionsAsked + 1 } };
   }
 
-  await updateConversation(convo.id, { state: "submitted" });
-  return (
-    `Thanks! Report #${ticket.id} sent to ${agency.name} (${ticket.priority} priority). ` +
-    `We'll text you updates. Reply STATUS to check, NEW to report something else.`
-  );
+  return {
+    reply:
+      `Thanks! Report #${ticket.id} sent to ${agency.name} (${ticket.priority} priority). ` +
+      `We'll text you updates. Reply STATUS to check, NEW to report something else.`,
+    patch: { state: "submitted" },
+  };
 }
 
-function ticketFields(result: TriageResult, emergency: boolean, mediaUrl: string | null) {
+// Dashboard sort key before cross-ticket analysis adjusts it (see ARCHITECTURE.md).
+const BASE_SCORE = { CRITICAL: 100, HIGH: 70, MEDIUM: 40, LOW: 10 } as const;
+
+function ticketFields(result: TriageResult, emergency: boolean, mediaUrl: string | null): TicketFields {
+  const priority = emergency ? "CRITICAL" : result.priority;
   return {
     agencyId: agencyFor(result.category).id,
     category: result.category,
@@ -117,10 +133,11 @@ function ticketFields(result: TriageResult, emergency: boolean, mediaUrl: string
     lng: null,
     hazardType: result.hazard_type,
     peopleInvolved: result.people_involved,
-    priority: emergency ? ("CRITICAL" as const) : result.priority,
+    priority,
     priorityReason: result.priority_reason,
     isEmergency: emergency,
     photoUrl: mediaUrl,
+    priorityScore: BASE_SCORE[priority],
   };
 }
 
