@@ -30,16 +30,3 @@ User authentication for reporters (allow anonymous or simple phone number valida
 Complex multi-agency jurisdictional routing (mock the routing with 3-4 predefined "buckets").
 Native iOS/Android apps (stick to a responsive web app or SMS via Twilio).
 
-Option 3: The "Zero-App" Approach (Highest Demo Impact)
-
-Citizen Interface: SMS via Twilio API.
-Backend: Node.js or Python serverless function (AWS Lambda or a simple Render web service) that receives the Twilio webhooks.
-AI Layer: OpenAI API. It acts as the "bot" that texts the user back for clarification.
-Agency Dashboard: A lightweight React app.
-Database: Firebase (Firestore).
-Pros: Unbeatable accessibility. Firebase allows the Agency Dashboard to update in real-time instantly when a new text comes in.
-Cons: Twilio requires a tiny bit of setup (buying a $1 phone number and configuring webhook URLs, usually via ngrok for local testing).
-
-
-
-
