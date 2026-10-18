@@ -294,6 +294,58 @@ export async function linkTicketToIncident(ticketId: number, incidentId: number)
   );
 }
 
+export async function setIncidentStatus(id: number, status: IncidentStatus): Promise<Incident | null> {
+  const row = check(
+    await db()
+      .from("incidents")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .maybeSingle(),
+    "setIncidentStatus",
+  );
+  return row ? toIncident(row) : null;
+}
+
+export async function setTicketStatus(id: number, status: TicketStatus): Promise<Ticket | null> {
+  const row = check(
+    await db()
+      .from("tickets")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .maybeSingle(),
+    "setTicketStatus",
+  );
+  return row ? toTicket(row) : null;
+}
+
+export async function listIncidentTickets(incidentId: number): Promise<Ticket[]> {
+  const rows = check(
+    await db().from("tickets").select("*").eq("incident_id", incidentId).order("created_at"),
+    "listIncidentTickets",
+  );
+  return rows.map(toTicket);
+}
+
+// Moves an incident's reports forward (never backward), e.g. new -> in_progress on confirm.
+export async function advanceIncidentTickets(incidentId: number, from: TicketStatus[], to: TicketStatus): Promise<void> {
+  check(
+    await db()
+      .from("tickets")
+      .update({ status: to, updated_at: new Date().toISOString() })
+      .eq("incident_id", incidentId)
+      .in("status", from),
+    "advanceIncidentTickets",
+  );
+}
+
+// Display name from the agencies table (names may be edited to official ones).
+export async function getAgencyName(id: string): Promise<string> {
+  const row = check(await db().from("agencies").select("name").eq("id", id).maybeSingle(), "getAgencyName");
+  return (row as { name: string } | null)?.name ?? id;
+}
+
 // --- row mappers -------------------------------------------------------------
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

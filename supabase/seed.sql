@@ -218,52 +218,52 @@ insert into messages (conversation_id, sender, body, created_at) values
   ('c0000000-0000-4000-8000-000000000101', 'reporter', 'huge pothole on figueroa, cars are swerving into the next lane', now() - interval '180 min'),
   ('c0000000-0000-4000-8000-000000000101', 'bot',      'What is the nearest cross street on Figueroa?', now() - interval '180 min'),
   ('c0000000-0000-4000-8000-000000000101', 'reporter', 'right at jefferson, by the USC entrance', now() - interval '178 min'),
-  ('c0000000-0000-4000-8000-000000000101', 'bot',      'Thanks! Report #101 sent to LA Streets & 311 (MEDIUM priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '178 min'),
+  ('c0000000-0000-4000-8000-000000000101', 'bot',      'Thanks! Report #101 sent to LA Streets & 311. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '178 min'),
   ('c0000000-0000-4000-8000-000000000101', 'agency',   'Update on #101: a patch crew is scheduled for this afternoon. Thanks for reporting!', now() - interval '40 min'),
 
   ('c0000000-0000-4000-8000-000000000102', 'reporter', 'there''s an aggressive dog near the elementary school on 30th street, kids are outside for recess', now() - interval '12 min'),
   ('c0000000-0000-4000-8000-000000000102', 'bot',      'Is the dog contained or running loose? And what''s the nearest cross street?', now() - interval '12 min'),
   ('c0000000-0000-4000-8000-000000000102', 'reporter', 'running loose, 30th and hoover', now() - interval '10 min'),
-  ('c0000000-0000-4000-8000-000000000102', 'bot',      'Thanks! Report #102 sent to LA Animal Services (HIGH priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '10 min'),
+  ('c0000000-0000-4000-8000-000000000102', 'bot',      'Thanks! Report #102 sent to LA Animal Services. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '10 min'),
 
   ('c0000000-0000-4000-8000-000000000103', 'reporter', 'tree branch fell on the power line at menlo and 35th, there are sparks', now() - interval '25 min'),
   ('c0000000-0000-4000-8000-000000000103', 'bot',      'If anyone is in danger, CALL 911 NOW. This line is not monitored for emergencies. We''ve also logged report #103.', now() - interval '25 min'),
   ('c0000000-0000-4000-8000-000000000103', 'agency',   'Update on #103: LADWP has been notified and the block is being closed. Please stay away from the line.', now() - interval '20 min'),
 
   ('c0000000-0000-4000-8000-000000000104', 'reporter', 'someone dumped 3 mattresses and a couch in the alley behind 27th and severance, cant get my car out', now() - interval '300 min'),
-  ('c0000000-0000-4000-8000-000000000104', 'bot',      'Thanks! Report #104 sent to LA Sanitation & Environment (MEDIUM priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '299 min'),
+  ('c0000000-0000-4000-8000-000000000104', 'bot',      'Thanks! Report #104 sent to LA Sanitation & Environment. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '299 min'),
 
   ('c0000000-0000-4000-8000-000000000105', 'reporter', 'graffiti all over the bus shelter at vermont and expo', now() - interval '1440 min'),
-  ('c0000000-0000-4000-8000-000000000105', 'bot',      'Thanks! Report #105 sent to LA Sanitation & Environment (LOW priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '1439 min'),
+  ('c0000000-0000-4000-8000-000000000105', 'bot',      'Thanks! Report #105 sent to LA Sanitation & Environment. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '1439 min'),
   ('c0000000-0000-4000-8000-000000000105', 'agency',   'Update on #105: the graffiti has been removed. Thanks for reporting!', now() - interval '600 min'),
 
   ('c0000000-0000-4000-8000-000000000106', 'reporter', 'streetlight is out on adams', now() - interval '600 min'),
   ('c0000000-0000-4000-8000-000000000106', 'bot',      'Which cross street on Adams is the light near?', now() - interval '600 min'),
   ('c0000000-0000-4000-8000-000000000106', 'reporter', 'hoover, right by the bus stop. totally dark at night', now() - interval '598 min'),
-  ('c0000000-0000-4000-8000-000000000106', 'bot',      'Thanks! Report #106 sent to LA Streets & 311 (MEDIUM priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '598 min'),
+  ('c0000000-0000-4000-8000-000000000106', 'bot',      'Thanks! Report #106 sent to LA Streets & 311. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '598 min'),
 
   ('c0000000-0000-4000-8000-000000000107', 'reporter', 'older man sleeping outside by the rose garden at expo park, no jacket, he asked me for food', now() - interval '70 min'),
   ('c0000000-0000-4000-8000-000000000107', 'bot',      'Thanks for looking out for him. Does he seem hurt or in need of medical help?', now() - interval '70 min'),
   ('c0000000-0000-4000-8000-000000000107', 'reporter', 'no hes ok just cold and hungry', now() - interval '67 min'),
-  ('c0000000-0000-4000-8000-000000000107', 'bot',      'Thanks! Report #107 sent to Community Food & Shelter Network (MEDIUM priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '67 min'),
+  ('c0000000-0000-4000-8000-000000000107', 'bot',      'Thanks! Report #107 sent to Community Food & Shelter Network. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '67 min'),
 
   ('c0000000-0000-4000-8000-000000000108', 'reporter', 'silver car with flat tires has been parked at 37th and budlong for 2+ weeks', now() - interval '2000 min'),
-  ('c0000000-0000-4000-8000-000000000108', 'bot',      'Thanks! Report #108 sent to LAPD Non-Emergency (LOW priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '1999 min'),
+  ('c0000000-0000-4000-8000-000000000108', 'bot',      'Thanks! Report #108 sent to LAPD Non-Emergency. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '1999 min'),
 
   ('c0000000-0000-4000-8000-000000000109', 'reporter', '2 cars got their windows smashed on jefferson near mcclintock, glass everywhere', now() - interval '150 min'),
-  ('c0000000-0000-4000-8000-000000000109', 'bot',      'Thanks! Report #109 sent to LAPD Non-Emergency (MEDIUM priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '149 min'),
+  ('c0000000-0000-4000-8000-000000000109', 'bot',      'Thanks! Report #109 sent to LAPD Non-Emergency. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '149 min'),
 
   ('c0000000-0000-4000-8000-000000000110', 'reporter', 'water is gushing out of the street on 29th', now() - interval '55 min'),
   ('c0000000-0000-4000-8000-000000000110', 'bot',      'What''s the nearest cross street on 29th?', now() - interval '55 min'),
   ('c0000000-0000-4000-8000-000000000110', 'reporter', 'orchard ave. its flooding a whole lane', now() - interval '52 min'),
-  ('c0000000-0000-4000-8000-000000000110', 'bot',      'Thanks! Report #110 sent to LA Streets & 311 (HIGH priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '52 min'),
+  ('c0000000-0000-4000-8000-000000000110', 'bot',      'Thanks! Report #110 sent to LA Streets & 311. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '52 min'),
 
   ('c0000000-0000-4000-8000-000000000111', 'reporter', 'dead raccoon on the sidewalk at expo and bill robertson', now() - interval '1300 min'),
-  ('c0000000-0000-4000-8000-000000000111', 'bot',      'Thanks! Report #111 sent to LA Animal Services (LOW priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '1299 min'),
+  ('c0000000-0000-4000-8000-000000000111', 'bot',      'Thanks! Report #111 sent to LA Animal Services. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '1299 min'),
   ('c0000000-0000-4000-8000-000000000111', 'agency',   'Update on #111: this has been picked up. Thanks for reporting!', now() - interval '900 min'),
 
   ('c0000000-0000-4000-8000-000000000112', 'reporter', 'pothole on fig near jefferson just gave me a flat tire', now() - interval '95 min'),
-  ('c0000000-0000-4000-8000-000000000112', 'bot',      'Thanks! Report #112 sent to LA Streets & 311 (HIGH priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '95 min'),
+  ('c0000000-0000-4000-8000-000000000112', 'bot',      'Thanks! Report #112 sent to LA Streets & 311. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '95 min'),
   ('c0000000-0000-4000-8000-000000000112', 'bot',      'Others have reported this too. We''ve added your report to incident #1001 so responders see the full picture.', now() - interval '94 min'),
 
   ('c0000000-0000-4000-8000-000000000113', 'reporter', 'hay un bache enorme en figueroa y jefferson', now() - interval '40 min'),
@@ -274,9 +274,9 @@ insert into messages (conversation_id, sender, body, created_at) values
   ('c0000000-0000-4000-8000-000000000114', 'bot',      'Thanks for your message. To report a problem, tell us what is happening and where.', now() - interval '20 min'),
 
   ('c0000000-0000-4000-8000-000000000115', 'reporter', 'someone stole my bike on trousdale', now() - interval '18 min'),
-  ('c0000000-0000-4000-8000-000000000115', 'bot',      'Thanks! Report #115 sent to LAPD Non-Emergency (LOW priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '18 min'),
+  ('c0000000-0000-4000-8000-000000000115', 'bot',      'Thanks! Report #115 sent to LAPD Non-Emergency. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '18 min'),
 
   ('c0000000-0000-4000-8000-000000000116', 'reporter', 'mi familia necesita comida, somos 4 y mi esposo perdió su trabajo', now() - interval '35 min'),
   ('c0000000-0000-4000-8000-000000000116', 'bot',      '¿Cuál es la calle o intersección más cercana donde están?', now() - interval '35 min'),
   ('c0000000-0000-4000-8000-000000000116', 'reporter', 'calle 36 y normandie', now() - interval '32 min'),
-  ('c0000000-0000-4000-8000-000000000116', 'bot',      'Thanks! Report #116 sent to Community Food & Shelter Network (MEDIUM priority). We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '32 min');
+  ('c0000000-0000-4000-8000-000000000116', 'bot',      'Thanks! Report #116 sent to Community Food & Shelter Network. We''ll text you updates. Reply STATUS to check, NEW to report something else.', now() - interval '32 min');

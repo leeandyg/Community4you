@@ -137,7 +137,7 @@ function nextReply(
 
   return {
     reply:
-      `Thanks! Report #${ticket.id} sent to ${agency.name} (${ticket.priority} priority). ` +
+      `Thanks! Report #${ticket.id} sent to ${agency.name}. ` +
       `We'll text you updates. Reply STATUS to check, NEW to report something else.`,
     patch: { state: "submitted" },
   };

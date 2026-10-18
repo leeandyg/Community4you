@@ -201,7 +201,7 @@ All routes live on the backend and allow requests from the dashboard's address.
 | B3 | `geocode.ts` | deferred (add-on with the map) | map |
 | B4 | Add `credibility` and `suggested_action` to triage; per-number rate limit | done | |
 | B5 | **Incidents**: `analyze.ts` attaches each submitted report to an open incident or starts one, merges the summary, re-prioritizes with corroboration (no coordinates needed) | done | dashboard D3 |
-| B6 | `/api/incidents/:id` (confirm / resolve → texts every reporter) and `/api/tickets/:id` status + message routes | | dashboard D6 |
+| B6 | `/api/incidents/:id` (confirm / resolve → texts every reporter) and `/api/tickets/:id` status + message routes | done | dashboard D6 |
 | B7 | `/api/insights` (stats + AI summary) | | dashboard D7 |
 | B8 | Deploy to Vercel, register the phone's webhook once | | demo |
 
@@ -232,9 +232,9 @@ app/api/
   smsgate/route.ts              [done] Android gateway webhook (main SMS channel)
   chat/route.ts                 [done] web chat → engine
   sms/route.ts                  [done, unused] Twilio webhook
-  incidents/[id]/route.ts       [todo] PATCH confirm / resolve
-  tickets/[id]/route.ts         [todo] PATCH status
-  tickets/[id]/messages/route.ts[todo] agency message
+  incidents/[id]/route.ts       [done] PATCH confirm / resolve
+  tickets/[id]/route.ts         [done] PATCH status
+  tickets/[id]/messages/route.ts[done] agency message
   tickets/[id]/reanalyze/route.ts [todo, optional]
   insights/route.ts             [todo]
 lib/
