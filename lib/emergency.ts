@@ -8,6 +8,7 @@ const EMERGENCY_PATTERNS: RegExp[] = [
   /\bunresponsive\b|\bnot breathing\b|\bpassed out\b|\bunconscious\b/i,
   /\boverdos(e|ed|ing)\b|\bheart attack\b|\bseizure\b/i,
   /\bdrowning\b|\bkidnap(ped|ping)?\b/i,
+  /\bexplo(sion|sions|ded|ding)\b/i,
   /\b(live|sparking) (power )?wires?\b|\bsparks?\b/i,
 ];
 

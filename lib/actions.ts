@@ -1,9 +1,11 @@
 import { notifyReporter } from "./notify";
+import { BASE_SCORE } from "./scoring";
 import {
   advanceIncidentTickets,
   getAgencyName,
   getTicket,
   listIncidentTickets,
+  markTicketCredible,
   setIncidentStatus,
   setTicketStatus,
   type Incident,
@@ -55,6 +57,20 @@ export async function changeTicketStatus(id: number, status: TicketAction): Prom
       ? `Update on report #${id}: ${agency} is on it.`
       : `Update on report #${id}: ${agency} marked it resolved. Thanks for reporting!`;
   await notifyReporter(ticket.conversationId, ticket.phone, message, "agency");
+  return ticket;
+}
+
+// "Not spam": the agency overrides the AI's flag. The caller then runs incident
+// analysis so the report joins the queue. A resident whose report was answered
+// as spam hears that it's being looked at.
+export async function clearTicketFlag(id: number): Promise<Ticket | null> {
+  const before = await getTicket(id);
+  if (!before) return null;
+  const ticket = await markTicketCredible(id, BASE_SCORE[before.priority]);
+  if (ticket && before.credibility === "spam") {
+    const agency = await getAgencyName(ticket.agencyId);
+    await notifyReporter(ticket.conversationId, ticket.phone, `Update on report #${id}: ${agency} reviewed it and is looking into it.`, "agency");
+  }
   return ticket;
 }
 

@@ -132,7 +132,10 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
     addMessage(conversation.id, "bot", reply),
   ]);
   const submitted = patch.state === "submitted" || conversation.state === "submitted";
-  const analyzeTicketId = ticket && submitted && ticket.credibility !== "spam" ? ticket.id : null;
+  // Spam isn't grouped into incidents, except an emergency: that always reaches
+  // the dashboard (still labeled spam) in case the AI misjudged it.
+  const analyzeTicketId =
+    ticket && submitted && (ticket.credibility !== "spam" || ticket.isEmergency) ? ticket.id : null;
   return { reply, ticketId: ticket?.id ?? null, emergency, analyzeTicketId };
 }
 

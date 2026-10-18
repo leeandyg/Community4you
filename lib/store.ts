@@ -330,6 +330,20 @@ export async function setTicketStatus(id: number, status: TicketStatus): Promise
   return row ? toTicket(row) : null;
 }
 
+// An agency overrides the AI's spam/suspicious flag.
+export async function markTicketCredible(id: number, priorityScore: number): Promise<Ticket | null> {
+  const row = check(
+    await db()
+      .from("tickets")
+      .update({ credibility: "ok", credibility_reason: null, priority_score: priorityScore, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .maybeSingle(),
+    "markTicketCredible",
+  );
+  return row ? toTicket(row) : null;
+}
+
 export async function listIncidentTickets(incidentId: number): Promise<Ticket[]> {
   const rows = check(
     await db().from("tickets").select("*").eq("incident_id", incidentId).order("created_at"),

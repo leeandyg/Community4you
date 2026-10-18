@@ -57,7 +57,8 @@ export interface AnalysisOutcome {
 
 export async function analyzeTicket(ticketId: number): Promise<AnalysisOutcome | null> {
   const ticket = await getTicket(ticketId);
-  if (!ticket || ticket.credibility === "spam") return null;
+  // Emergencies are grouped even when flagged as spam, so they never disappear.
+  if (!ticket || (ticket.credibility === "spam" && !ticket.isEmergency)) return null;
 
   // A follow-up to a report that already has an incident only updates that incident.
   const current = ticket.incidentId != null ? await getIncident(ticket.incidentId) : null;
