@@ -9,7 +9,11 @@ Residents **text a real phone number** to describe a neighborhood problem ("aggr
 - groups reports about the same real-world event into one **incident**,
 - suggests what responders should do.
 
-Agencies see tickets appear live on a dashboard, and changing a ticket's status texts the resident back. Life-threatening keywords get an immediate "CALL 911" reply. `blueprint.md` has the product pitch.
+Agencies work **incidents** on a live dashboard. Confirming or resolving one texts every resident who reported it, and a public website shows published alerts. Life-threatening keywords get an immediate "CALL 911" reply. `blueprint.md` has the product pitch.
+
+**Status (2026-10-17):**
+- **The whole core loop is live and tested with a real phone:** text → AI triage → ticket → incident → dashboard → Confirm/Resolve → SMS back. Backend and public site at https://community4you.vercel.app; dashboard at https://community4you-xaix.vercel.app.
+- **Next:** geocoding + map (planned below), README, demo prep.
 
 **Core scope (everything else is a stretch goal):**
 - categorize and route
@@ -31,11 +35,11 @@ Agencies see tickets appear live on a dashboard, and changing a ticket's status 
 | App | Folder | Who | What it does |
 |---|---|---|---|
 | **Backend** (Next.js 15, TypeScript) | repo root | Andy | Receives texts, runs the AI, saves tickets, sends SMS, serves the API routes the dashboard calls, and the **public website** at `/` (landing page + live feed of published alerts) |
-| **Dashboard** (Vite + React) | `agency-dashboard/` | teammate | The agencies' view: ticket list, ticket detail, filters, stats (map is an add-on) |
+| **Dashboard** (Vite + React) | `agency-dashboard/` | teammate | The agencies' "incident command" view: incident queue (Needs attention / In progress / Resolved / All), "Viewing as" agency, search, incident detail with its reports and SMS conversation, Confirm / Resolve / Review / message the resident, stats row + AI shift briefing, organizations view, dark mode. Map is an add-on. |
 | **Supabase** (Postgres + Realtime) | `supabase/*.sql` | shared | The single source of truth. Both apps talk to it. |
 
 **Rules for the dashboard:**
-- **Reads** come straight from Supabase with `supabase-js`, using the publishable key. Subscribe to Realtime on `tickets` and `messages` so new texts appear without a page refresh.
+- **Reads** come straight from Supabase with `supabase-js`, using the publishable key. Realtime on `incidents`, plus `tickets` and `messages` filtered to the selected incident and report, so new texts appear without a page refresh.
 - **Writes** always go through the backend's API routes, never directly to the database, because the backend also texts the resident. The database blocks browser writes, so this is enforced.
 
 ---
@@ -45,10 +49,10 @@ Agencies see tickets appear live on a dashboard, and changing a ticket's status 
 | Layer | Choice | Notes |
 |---|---|---|
 | SMS | **[SMS Gateway for Android](https://docs.sms-gate.app)**, Cloud mode | An Android phone with a SIM is the bot's number. It can be anywhere with power and Wi-Fi, needs no carrier registration, and judges text it from their own phones. |
-| AI | **Gemini** via `@google/genai`: `gemini-3.5-flash-lite` (main), `gemini-3.8-flash` (backup) | Free tier. Flash-Lite answers in about 1s; free-tier Flash often returns 503 errors. Every answer must match a JSON schema and is checked with Zod. |
+| AI | **Gemini** via `@google/genai`: `gemini-3.5-flash-lite` first, `gemini-3.8-flash` as backup, for every AI step | Prepaid billing ($5, about $0.005 per report). Flash-Lite answers in about 1s; Flash is slower and its free tier was capped at 20 requests/day. Every answer must match a JSON schema and is checked with Zod (`lib/gemini.ts`). |
 | Database | **Supabase** | Row Level Security on: anyone can read, only the backend's secret key can write. |
-| Geocoding | Mapbox or Google, biased to Los Angeles | **Add-on, deferred** with the map. `lat`/`lng` stay null for live tickets until then. |
-| Map | react-leaflet + OpenStreetMap tiles | **Add-on, deferred.** No API key needed when we get to it. |
+| Geocoding | Google Geocoding API (planned) | **Not built yet**; see "Planned: geocoding + map". `lat`/`lng` stay null for live tickets until then (the seed data has them). |
+| Map | react-leaflet + OpenStreetMap tiles (planned) | **Not built yet.** No API key needed. |
 | Hosting | **Vercel**, as two projects from the same repo | The backend at the repo root, the dashboard with `agency-dashboard/` as its root folder. |
 
 **Ruled out:**
@@ -63,19 +67,20 @@ Agencies see tickets appear live on a dashboard, and changing a ticket's status 
 
 ```
 Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhook──► POST /api/smsgate
-                                                                         │ verify signature, skip duplicates,
-                                                                         │ reply 204 immediately, then:
+                                                                         │ verify signature, skip duplicates and short codes,
+                                                                         │ reply 204 immediately, then (smsAccess.ts) check who's answered:
                                                                          ▼
  lib/engine.ts  handleMessage()
    1. emergency.ts   keyword check (instant, runs even if the AI fails)
-   2. find or create the conversation (60 min window)
+   2. find or create the conversation (60 min window); a text after submission goes to
+      followup.ts first: more info → same ticket, new problem → new report, "thanks" → short ack
    3. triage.ts      SINGLE-TIP AI: category, priority, credibility, suggested action, follow-up question
-   4. geocode.ts     location_text → lat/lng   (add-on, deferred)
+   4. geocode.ts     location_text → lat/lng   (planned, not built)
    5. store.ts       save ticket + messages → Supabase
    6. reply ──► sms-gate cloud API ──► Android phone ──SMS──► resident        (about 1–2s total)
    7. once the report is submitted, in the background: analyze.ts   CROSS-TIP AI (incidents)
         ├─ SQL: up to 20 open incidents (active/confirmed) with a report in the last 48 h
-        ├─ Gemini Flash: "same real-world event as one of these, or new?" + the merged incident record
+        ├─ Gemini (Flash-Lite, Flash backup): "same real-world event as one of these, or new?" + the merged record
         ├─ attach the ticket (tickets.incident_id) or create a new incident; update the incident's
         │  title, summary, priority, report_count, priority_score ─► Supabase
         └─ if it joined an existing incident, text the resident:
@@ -88,10 +93,13 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
    ├─ PATCH /api/incidents/:id             confirm / resolve → texts every reporter on the incident
    ├─ PATCH /api/tickets/:id               status change on one report → texts that resident
    ├─ POST  /api/tickets/:id/messages      agency message → texts the resident
-   └─ POST  /api/tickets/:id/reanalyze     (optional) re-run the incident analysis
+   └─ POST  /api/tickets/:id/reanalyze     (optional, not built) re-run the incident analysis
+
+ Public website (app/page.tsx, same backend) ─ landing page + feed of published alerts
+   (incidents with alert_published_at; no phone numbers or conversations)
 ```
 
-`/api/chat` runs the same `handleMessage()` for a web chat page. That page is both a no-phone way to report and the **demo backup** if the phone has problems.
+`/api/chat` runs the same `handleMessage()` for web chat (JSON in/out). It's the **demo backup** if the phone has problems (e.g. `curl` it live), and could back a web chat page, which isn't built.
 
 ---
 
@@ -100,8 +108,9 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
 | Step | Where | When | Produces |
 |---|---|---|---|
 | **Single-tip triage** | `lib/triage.ts` (one Gemini call per text) | Every incoming text, before the reply | `category` → agency, `priority` + reason, `emergency`, `credibility` + reason, `suggested_action`, `summary`, location, the follow-up question |
-| **Incident analysis** | `lib/analyze.ts` (SQL + one Gemini Flash call, Lite as backup) | In the background once a report is submitted (and when a submitted report gets new details) | Which **incident** the report belongs to (or a new one), the incident's merged title + summary, its priority using urgency, severity, vulnerable people, trend and **corroboration**, `report_count`, `priority_score` |
-| **Insights** | `lib/insights.ts` → `GET /api/insights` | When the dashboard asks; the AI summary is cached about 5 min | Counts by category / priority / agency, open CRITICAL tickets, hotspots, and a one-paragraph AI shift summary |
+| **Follow-up check** | `lib/followup.ts` (one small Gemini call) | A text after the report was submitted | `more_info` / `new_problem` / `other` |
+| **Incident analysis** | `lib/analyze.ts` (SQL + one Gemini call) | In the background once a report is submitted (and when a submitted report gets new details) | Which **incident** the report belongs to (or a new one), the incident's merged title + summary, its priority using urgency, severity, vulnerable people, trend and **corroboration**, `report_count`, `priority_score` |
+| **Insights** | `lib/insights.ts` → `GET /api/insights` | When the dashboard asks; the AI summary is regenerated only when incidents change, at most once a minute | Counts by category / priority / status / agency, last-24h report / flagged / resolved counts, needs-attention and hotspot lists, and a short AI shift briefing |
 
 **Incidents** are real-world events (a fire, a pothole). Every non-spam report belongs to one:
 - A report on its own becomes a one-report incident; matching reports join it. Comparing against the short list of *open incidents* (not every past report) keeps the AI's job small and gives it the merged context.
@@ -127,7 +136,7 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
 **Fake-report filtering:**
 - The AI gives each report a `credibility`, and a cap of `REPORTS_PER_HOUR` (default 5) new reports per number backs it up. Emergencies bypass the cap.
 - `spam` tickets aren't sent to an agency, and the resident gets a neutral reply.
-- The dashboard hides them behind a **Flagged** filter instead of deleting them.
+- Spam gets no incident, so it never appears in the incident queue. A **Flagged** view (`tickets` where `credibility != 'ok'`) is planned for the dashboard but not built.
 
 **Priority:** the AI sets the priority *level* with context; `priority_score` (`lib/scoring.ts`) turns it into a sort key:
 - base by level: CRITICAL 100, HIGH 70, MEDIUM 40, LOW 10
@@ -199,8 +208,8 @@ All routes live on the backend and allow requests from the dashboard's address.
 | `PATCH /api/tickets/:id` | `{ "status": "in_progress" \| "resolved" }` | Updates one report's status and texts that resident: "Update on #142: LA Animal Services is on it." |
 | `POST /api/tickets/:id/messages` | `{ "body": "..." }` | Saves an `agency` message and texts it to the resident. Their reply joins the same conversation. |
 | `GET /api/insights` | (none). Optional `?agency=streets`, `?summary=false` | `{ counts: { openIncidents, byPriority, byCategory, byStatus, byAgency, reportsLast24h, flaggedLast24h, resolvedLast24h }, needsAttention: [...], hotspots: [...], summary, summaryGeneratedAt }`. The AI summary is cached and regenerated only when incidents change (at most once a minute). |
-| `POST /api/tickets/:id/reanalyze` | (none) | Optional. Re-runs the incident analysis on one ticket. |
-| `POST /api/incidents/:id/alert` | `{ "message": "..." }` | **Add-on.** Publish alert (confirmed incidents only): saves `alert_message` and texts the incident's reporters. |
+| `POST /api/tickets/:id/reanalyze` | (none) | **Not built** (optional). Re-runs the incident analysis on one ticket. |
+| `POST /api/incidents/:id/alert` | `{ "message": "..." }` | **Not built** (add-on, deprioritized). Publish alert, confirmed incidents only: sets `alert_message` + `alert_published_at`, which the public site's feed already reads. |
 
 ---
 
@@ -213,30 +222,50 @@ All routes live on the backend and allow requests from the dashboard's address.
 | B0 | SMS gateway webhook, single-tip triage, conversation rules | done | |
 | B1 | `supabase/schema.sql` + `seed.sql`: agencies, 13 incidents, 16 USC-area tickets (one 3-report incident, spam, suspicious) | done | dashboard D2 |
 | B2 | `store.ts` → Supabase (same functions) | done | everything after |
-| B3 | `geocode.ts` | deferred (add-on with the map) | map |
+| B3 | `geocode.ts` | planned (see "Planned: geocoding + map") | map, location checks |
 | B4 | Add `credibility` and `suggested_action` to triage; per-number rate limit | done | |
 | B5 | **Incidents**: `analyze.ts` attaches each submitted report to an open incident or starts one, merges the summary, re-prioritizes with corroboration (no coordinates needed) | done | dashboard D3 |
 | B6 | `/api/incidents/:id` (confirm / resolve → texts every reporter) and `/api/tickets/:id` status + message routes | done | dashboard D6 |
 | B7 | `/api/insights` (stats + AI summary) | done | dashboard D7 |
-| B8 | Deploy to Vercel, register the phone's webhook once | backend https://community4you.vercel.app and dashboard https://community4you-xaix.vercel.app live (both auto-deploy on push); phone webhook pending | demo |
+| B8 | Deploy to Vercel, register the phone's webhook once | done: both apps live and auto-deploy on push; phone webhook registered, signing key on | demo |
+| B9 | Tuning + review fixes: category detail questions, follow-up classifier, titles in residents' words, DB agency names in texts, Twilio removed, SMS access control, `SMS_DRY_RUN` | done | |
+| B10 | Merge the teammate's dashboard + public website; fix live dashboard bugs (live report list, filter-aware selection, per-agency stats, trailing-slash API URL) | done | |
+| B11 | README for judges / Devpost | todo | submission |
 
 **Dashboard (teammate):** step-by-step guide in [agency-dashboard/TODO.md](agency-dashboard/TODO.md).
 
-| # | Task | Notes |
+| # | Task | Status |
 |---|---|---|
-| D1 | Cut Resources / Alerts / Login / Settings. Build the layout with local sample data **shaped exactly like the `tickets` table**. | Start now; it doesn't wait for anything |
-| D2 | Swap the sample data for Supabase reads plus Realtime | After B1 |
-| D3 | **Incident list** as the main view (title, summary, priority, report count, status); expand to its reports: summary, suggested action, credibility, text conversation | After B5 |
-| D4 | Map with pins colored by priority | **Add-on, deferred.** Seed data already has `lat`/`lng` |
-| D5 | Filters (agency, category, status, Flagged), sorted by `priority_score` | |
-| D5b | **Publish alert** button on an incident | Add-on, deferred |
-| D6 | Confirm / Resolve on incidents call `PATCH /api/incidents/:id`; per-report buttons call `PATCH /api/tickets/:id` | After B6 |
-| D7 | Stats row + AI shift summary from `/api/insights` | After B7 |
-| D8 | Deploy the dashboard to Vercel (root folder `agency-dashboard/`) | |
+| D1 | Cut Resources / Alerts / Login / Settings | done |
+| D2 | Supabase reads plus Realtime | done |
+| D3 | **Incident list** as the main view, with its reports, suggested action, credibility and SMS conversation | done |
+| D4 | Map with pins colored by priority | planned with geocoding; seed data already has `lat`/`lng` |
+| D5 | Filters: agency ("Viewing as"), status queues and search are done; category and **Flagged** views are not | partly done |
+| D5b | **Publish alert** button on confirmed incidents | not built (deprioritized) |
+| D6 | Confirm / Resolve incidents, review a report, message the resident | done |
+| D7 | Stats row + AI shift briefing from `/api/insights` (scoped to the "Viewing as" agency) | done |
+| D8 | Deployed (auto-deploys on push to `main`) | done |
+| — | Dark mode / theme toggle; public website at `/` | done |
 
 **Last 3–4 hours:** freeze features, reseed demo data, rehearse, record a backup video, write the Devpost.
 
-**Stretch goals:** photo texts (AI describes the photo), a web chat page for reporting, a landing page.
+**Stretch goals:** photo texts (AI describes the photo), a web chat page for reporting, reusing the previous report's location when a resolved problem comes back. (The landing page is done: the public website.)
+
+---
+
+## Planned: geocoding + map (not built)
+About 1.5 h backend + 1 h dashboard. **Cost:** Google Geocoding gives 10,000 free requests/month but needs a card on file; set a daily quota of about 300 in Cloud Console to hard-cap it at $0. Mapbox's free tier doesn't allow storing coordinates, and Nominatim is weak at intersections.
+
+| # | Piece | What it does |
+|---|---|---|
+| 1 | `lib/geocode.ts` | "Vermont & 36th" → `lat`/`lng` + a formatted address, restricted to LA County, with a precision check (an address or intersection is OK; only a city or ZIP is too vague) |
+| 2 | Save coordinates | Geocode after triage; save `lat`, `lng`, `geocoded_address` on the ticket; incidents take the first report's coordinates |
+| 3 | Dashboard map | react-leaflet + OSM tiles, incident pins colored by priority, popups |
+| 4 | False locations | Not found, outside LA, or too vague → ask once ("I couldn't find…"); still not found → submit with `location_verified = false` and show it as Flagged (not spam). Emergencies are never asked. |
+| 5 | Distance grouping | Only compare with open incidents within ~300 m (plus any without coordinates); none nearby → new incident with no AI call |
+| 6 | Area hotspots | `/api/insights` clusters nearby open incidents ("4 incidents within 2 blocks of Vermont & 36th") for the briefing and the map |
+
+**Schema:** add `tickets.location_verified boolean` and `tickets.geocoded_address text` (additive `ALTER TABLE`).
 
 ---
 
@@ -249,7 +278,8 @@ app/api/
   incidents/[id]/route.ts       [done] PATCH confirm / resolve
   tickets/[id]/route.ts         [done] PATCH status
   tickets/[id]/messages/route.ts[done] agency message
-  tickets/[id]/reanalyze/route.ts [todo, optional]
+  tickets/[id]/reanalyze/route.ts [not built, optional]
+app/page.tsx                    [done] public website: landing page + published-alerts feed
   insights/route.ts             [done] stats + AI shift summary
 lib/
   engine.ts      [done] conversation rules
@@ -262,7 +292,7 @@ lib/
   http.ts        [done] CORS + JSON helpers
   smsgate.ts     [done] gateway send + signature check
   store.ts       [done] Supabase persistence
-  geocode.ts     [deferred] add-on with the map
+  geocode.ts     [planned] see "Planned: geocoding + map"
   gemini.ts      [done] shared JSON call with model fallback
   analyze.ts     [done] incident grouping + priority
   scoring.ts     [done] priority_score
@@ -273,7 +303,10 @@ scripts/
   register-webhook.ts    [done] `npm run gateway:register -- https://<host>`
 supabase/
   schema.sql, seed.sql   [done] (grants.sql: one-time permissions fix)
-agency-dashboard/        teammate's Vite + React app
+agency-dashboard/
+  src/App.jsx            [done] the whole dashboard (pure fetchers + Realtime effects)
+  src/supabase.js        [done] browser client (publishable key)
+  TODO.md                dashboard guide for the teammate
 ```
 
 ---
@@ -343,7 +376,9 @@ cd agency-dashboard && npm run dev   # dashboard on :5173
 | Risk | Mitigation |
 |---|---|
 | The phone goes offline | Keep it plugged in with battery optimization off, and have someone near it during judging. Use the web chat as the backup. |
-| Gemini free-tier limits or 503 errors | Flash-Lite main with Flash backup and a canned reply if both fail. Cache the insights summary. If it gets bad, enable billing. |
+| Gemini errors or running out of prepaid credit | Flash-Lite main with Flash backup and a canned reply if both fail; the 911 reply never depends on the AI. Insights summary is cached. Watch the balance in AI Studio. |
+| Phone setup quirks | Android 15 may block *sending* SMS until the permission is granted (restricted settings / ADB); RCS must be off; the webhook only reaches the phone once the app is Online. See Setup. |
+| Teammate edits on a stale branch | Work on `main` and pull first (see "Working on the code together"). Merge rule: dashboard files from the branch, backend files from `main`. |
 | Duplicate detection without coordinates (map deferred) | Candidates are open tickets in the same category from the last 48 h; the AI compares location text and descriptions. Add distance filtering when geocoding lands. |
 | The duplicate-text check is held in memory per server instance (Vercel) | Rare at demo volume. Move it to a database table if it shows up. |
 | Schema changes break the other app | Only add columns, and announce each one. |
