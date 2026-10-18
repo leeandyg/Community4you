@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { analyzeTicket } from "@/lib/analyze";
 import { handleMessage } from "@/lib/engine";
+import { smsAccess } from "@/lib/smsAccess";
 import { isValidGatewaySignature, sendGatewaySms, type SmsReceivedEvent } from "@/lib/smsgate";
 
 export const runtime = "nodejs";
@@ -30,7 +31,9 @@ export async function POST(req: Request) {
   // Acknowledge right away; triage and the reply SMS run after the response.
   after(async () => {
     try {
-      const { reply, analyzeTicketId } = await handleMessage({ channel: "sms", from, body: event.payload.message });
+      const access = await smsAccess(from, event.payload.message);
+      if (!access.allowed) return; // not on the allowlist and didn't use the join keyword
+      const { reply, analyzeTicketId } = await handleMessage({ channel: "sms", from, body: access.body });
       await sendGatewaySms(from, reply);
       if (analyzeTicketId) await analyzeTicket(analyzeTicketId);
     } catch (err) {

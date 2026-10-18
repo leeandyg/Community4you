@@ -118,6 +118,12 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
 - A new report that joins an incident is told "Others have reported this too…". If the incident is already **confirmed**, it says "Others have reported this too, and <agency> is already responding…", and the report starts as `in_progress`.
 - **Publish alert** (add-on) is only allowed on `confirmed` incidents, so the AI can never broadcast something unverified. `alert_message` / `alert_published_at` are reserved for it.
 
+**Who the SMS bot answers** (`lib/smsAccess.ts`). The gateway is a regular phone, so the bot must not reply to its owner's friends and family:
+- Short codes (banks, 2FA, carrier alerts) are always ignored.
+- `SMS_ALLOWED_NUMBERS`: numbers that are always answered (the team). Use this while testing.
+- `SMS_JOIN_KEYWORD` (e.g. `REPORT`): anyone else is answered once their first text starts with it ("REPORT pothole at vermont and 36th"), and normally after that. Use this for the demo.
+- Senders who don't qualify are ignored entirely: no reply, nothing saved. With neither variable set, everyone is answered. Web chat isn't affected.
+
 **Fake-report filtering:**
 - The AI gives each report a `credibility`, and a cap of `REPORTS_PER_HOUR` (default 5) new reports per number backs it up. Emergencies bypass the cap.
 - `spam` tickets aren't sent to an agency, and the resident gets a neutral reply.

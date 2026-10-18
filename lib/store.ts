@@ -220,6 +220,16 @@ export async function getTicket(id: number): Promise<Ticket | null> {
   return row ? toTicket(row) : null;
 }
 
+// Whether this number has ever talked to the bot (used by the SMS join keyword).
+export async function hasConversation(phone: string): Promise<boolean> {
+  const { count, error } = await db()
+    .from("conversations")
+    .select("id", { count: "exact", head: true })
+    .eq("phone", phone);
+  if (error) throw new Error(`[store] hasConversation: ${error.message}`);
+  return (count ?? 0) > 0;
+}
+
 // How many tickets this number has opened recently (per-number report cap).
 export async function countRecentTickets(phone: string, withinMs: number): Promise<number> {
   const { count, error } = await db()
