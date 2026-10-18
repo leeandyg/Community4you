@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseReady } from "./supabase";
 import "./App.css";
 
-const API = import.meta.env.VITE_API_URL;
+// Trailing slashes would make "//api/..." URLs, which the backend redirects without CORS headers.
+const API = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 const categoryNames = {
   INFRASTRUCTURE: "Infrastructure",
   PUBLIC_SAFETY: "Public safety",
