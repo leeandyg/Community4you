@@ -55,6 +55,7 @@ async function fetchMessages(conversationId) {
 }
 
 export default function App() {
+  const [darkMode, setDarkMode] = useState(() => readTheme() !== "light");
   const [incidents, setIncidents] = useState([]);
   const [agencies, setAgencies] = useState([]);
   const [tickets, setTickets] = useState([]);
@@ -181,6 +182,14 @@ export default function App() {
     window.setTimeout(() => setNotice(""), 4000);
   }
 
+  function toggleTheme() {
+    setDarkMode((current) => {
+      const next = !current;
+      saveTheme(next ? "dark" : "light");
+      return next;
+    });
+  }
+
   async function changeIncidentStatus(status) {
     if (!selectedIncident) return;
     setBusy(true); setError("");
@@ -236,7 +245,7 @@ export default function App() {
 
   const counts = insights?.counts || {};
   return (
-    <div className="shell">
+    <div className={`shell ${darkMode ? "dark" : ""}`}>
       <aside className="sidebar">
         <div className="brand"><span>C4Y</span><div><strong>Community4You</strong><small>LA County response</small></div></div>
         <nav>
@@ -259,7 +268,13 @@ export default function App() {
       <main>
         <header className="topbar">
           <div><p>AGENCY OPERATIONS CENTER</p><h1>{view === "organizations" ? "Organization network" : "Incident command"}</h1></div>
-          <div className="top-actions"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search incidents…"/><span className="avatar">MM</span></div>
+          <div className="top-actions">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search incidents…"/>
+            <button className="theme-toggle" onClick={toggleTheme} aria-label={darkMode ? "Use light mode" : "Use dark mode"}>
+              {darkMode ? "☀ Light" : "☾ Dark"}
+            </button>
+            <span className="avatar">MM</span>
+          </div>
         </header>
         {error && <div className="error">{error}</div>}
         {notice && <div className="notice">✓ {notice}</div>}
@@ -385,6 +400,15 @@ function Organizations({ agencies, incidents, onOpen }) {
 
 function Setup() {
   return <main className="setup"><span>C4Y</span><h1>Connect the agency dashboard</h1><p>Create <code>agency-dashboard/.env.local</code> with the Supabase URL, publishable key and deployed API URL.</p></main>;
+}
+
+// localStorage can throw (blocked storage, some private modes); the theme is
+// just a convenience, so fall back to the default instead of crashing.
+function readTheme() {
+  try { return localStorage.getItem("c4y-theme"); } catch { return null; }
+}
+function saveTheme(theme) {
+  try { localStorage.setItem("c4y-theme", theme); } catch { /* not saved; fine */ }
 }
 
 function maskPhone(phone = "") {
