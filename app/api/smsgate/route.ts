@@ -20,7 +20,9 @@ export async function POST(req: Request) {
 
   const event = JSON.parse(rawBody) as SmsReceivedEvent;
   const from = event.payload?.sender ?? event.payload?.phoneNumber;
-  if (event.event !== "sms:received" || !from || seen.has(event.payload.messageId)) {
+  // Only real phone numbers: never auto-reply to short codes (banks, 2FA, carrier alerts).
+  const isPhoneNumber = Boolean(from && /^\+\d{10,15}$/.test(from));
+  if (event.event !== "sms:received" || !from || !isPhoneNumber || seen.has(event.payload.messageId)) {
     return new Response(null, { status: 204 });
   }
   seen.add(event.payload.messageId);
