@@ -6,6 +6,7 @@ import {
   getTicket,
   listIncidentTickets,
   markTicketCredible,
+  submitClarifyingConversation,
   setIncidentStatus,
   setTicketStatus,
   type Incident,
@@ -62,12 +63,14 @@ export async function changeTicketStatus(id: number, status: TicketAction): Prom
 
 // "Not spam": the agency overrides the AI's flag. The caller then runs incident
 // analysis so the report joins the queue. A resident whose report was answered
-// as spam hears that it's being looked at.
+// as spam hears that it's being looked at, and their conversation counts as
+// submitted, so a later text about something else starts a new report.
 export async function clearTicketFlag(id: number): Promise<Ticket | null> {
   const before = await getTicket(id);
   if (!before) return null;
   const ticket = await markTicketCredible(id, BASE_SCORE[before.priority]);
   if (ticket && before.credibility === "spam") {
+    await submitClarifyingConversation(ticket.conversationId);
     const agency = await getAgencyName(ticket.agencyId);
     await notifyReporter(ticket.conversationId, ticket.phone, `Update on report #${id}: ${agency} reviewed it and is looking into it.`, "agency");
   }

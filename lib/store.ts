@@ -330,6 +330,18 @@ export async function setTicketStatus(id: number, status: TicketStatus): Promise
   return row ? toTicket(row) : null;
 }
 
+// Marks a report's conversation submitted, unless the resident has moved on (closed).
+export async function submitClarifyingConversation(id: string): Promise<void> {
+  check(
+    await db()
+      .from("conversations")
+      .update({ state: "submitted", updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("state", "clarifying"),
+    "submitClarifyingConversation",
+  );
+}
+
 // An agency overrides the AI's spam/suspicious flag.
 export async function markTicketCredible(id: number, priorityScore: number): Promise<Ticket | null> {
   const row = check(

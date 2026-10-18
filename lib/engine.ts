@@ -91,6 +91,17 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
     }
   }
 
+  // A spam report stays open so a real one sent next is judged together with it
+  // ("test", then "pothole on Main"). A different problem gets its own report
+  // instead of overwriting the spam one.
+  if (convo?.state === "clarifying" && convo.ticketId != null) {
+    const [flagged, recent] = await Promise.all([getTicket(convo.ticketId), listMessages(convo.id)]);
+    if (flagged?.credibility === "spam" && !flagged.isEmergency && (await classifyFollowUp(flagged, recent, text)) === "new_problem") {
+      await updateConversation(convo.id, { state: "closed" });
+      convo = null;
+    }
+  }
+
   // Cap new reports per number (floods, spam bots). Emergencies always get through.
   if (!convo && !emergencyKeyword && (await countRecentTickets(msg.from, HOUR_MS)) >= REPORTS_PER_HOUR) {
     return { reply: RATE_LIMIT_REPLY, ticketId: null, emergency: false, analyzeTicketId: null };

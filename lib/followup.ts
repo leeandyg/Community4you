@@ -2,7 +2,7 @@ import { z } from "zod";
 import { FLASH_MODEL, generateJson, LITE_MODEL } from "./gemini";
 import type { Message, Ticket } from "./store";
 
-// After a report is submitted, a resident's next text could be more detail
+// After a report is submitted (or answered as spam), a resident's next text could be more detail
 // about it, a different problem, or just "thanks". One small Flash-Lite call
 // tells them apart so a new problem isn't merged into the old report.
 
@@ -13,7 +13,7 @@ const FollowUpSchema = z.object({
   reason: z.string(),
 });
 
-const SYSTEM_PROMPT = `A resident already submitted a neighborhood problem report over SMS. Classify their latest text:
+const SYSTEM_PROMPT = `A resident already sent a neighborhood problem report over SMS (it may have been judged spam). Classify their latest text:
 - more_info: details, corrections or updates about the SAME problem ("it got bigger", "the dog is in the park now"), or an answer to a question from the assistant or agency.
 - new_problem: a different problem, or the same kind of problem at a different place.
 - other: thanks, ok, emoji, greetings, or questions with no report content.
