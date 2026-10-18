@@ -22,6 +22,37 @@ async function api(path, method = "GET", body) {
   return data;
 }
 
+// Data fetchers: return rows or throw; no React state here.
+async function fetchDashboard() {
+  const [incidentResult, agencyResult] = await Promise.all([
+    supabase
+      .from("incidents")
+      .select("*, agencies(name, description)")
+      .order("priority_score", { ascending: false })
+      .order("last_reported_at", { ascending: false }),
+    supabase.from("agencies").select("id, name, description, categories").order("name"),
+  ]);
+  const failure = incidentResult.error || agencyResult.error;
+  if (failure) throw new Error(failure.message);
+  return { incidents: incidentResult.data || [], agencies: agencyResult.data || [] };
+}
+
+function fetchInsights(agencyId) {
+  return api(`/api/insights${agencyId && agencyId !== "all" ? `?agency=${agencyId}` : ""}`);
+}
+
+async function fetchTickets(incidentId) {
+  const { data, error } = await supabase.from("tickets").select("*").eq("incident_id", incidentId).order("created_at");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+async function fetchMessages(conversationId) {
+  const { data, error } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
 export default function App() {
   const [incidents, setIncidents] = useState([]);
   const [agencies, setAgencies] = useState([]);
@@ -40,98 +71,6 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const selectedIncident =
-    incidents.find((item) => item.id === selectedIncidentId) || incidents[0];
-  const selectedTicket =
-    tickets.find((item) => item.id === selectedTicketId) || tickets[0];
-  const selectedAgency =
-    selectedIncident?.agencies ||
-    agencies.find((item) => item.id === selectedIncident?.agency_id);
-
-  async function loadDashboard() {
-    if (!supabaseReady) { setLoading(false); return; }
-    const [incidentResult, agencyResult] = await Promise.all([
-      supabase
-        .from("incidents")
-        .select("*, agencies(name, description)")
-        .order("priority_score", { ascending: false })
-        .order("last_reported_at", { ascending: false }),
-      supabase.from("agencies").select("id, name, description, categories").order("name"),
-    ]);
-    if (incidentResult.error || agencyResult.error) {
-      setError(incidentResult.error?.message || agencyResult.error?.message);
-    } else {
-      setIncidents(incidentResult.data || []);
-      setAgencies(agencyResult.data || []);
-      setSelectedIncidentId((current) => current ?? incidentResult.data?.[0]?.id ?? null);
-    }
-    setLoading(false);
-    try {
-      setInsights(await api("/api/insights"));
-    } catch {
-      // The incident list remains usable if analytics are temporarily unavailable.
-    }
-  }
-
-  async function loadTickets(incidentId) {
-    if (!incidentId) { setTickets([]); return; }
-    const { data, error: ticketError } = await supabase
-      .from("tickets")
-      .select("*")
-      .eq("incident_id", incidentId)
-      .order("created_at");
-    if (ticketError) setError(ticketError.message);
-    else {
-      setTickets(data || []);
-      setSelectedTicketId((current) =>
-        data?.some((ticket) => ticket.id === current) ? current : data?.[0]?.id ?? null,
-      );
-    }
-  }
-
-  async function loadMessages(conversationId) {
-    if (!conversationId) { setMessages([]); return; }
-    const { data, error: messageError } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at");
-    if (messageError) setError(messageError.message);
-    else setMessages(data || []);
-  }
-
-  useEffect(() => {
-    loadDashboard();
-    if (!supabaseReady) return;
-    const channel = supabase
-      .channel("dashboard-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "incidents" }, loadDashboard)
-      .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, loadDashboard)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  useEffect(() => { loadTickets(selectedIncident?.id); }, [selectedIncident?.id]);
-  useEffect(() => { loadMessages(selectedTicket?.conversation_id); }, [selectedTicket?.conversation_id]);
-
-  useEffect(() => {
-    if (!selectedTicket?.conversation_id) return;
-    const channel = supabase
-      .channel(`messages-${selectedTicket.conversation_id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "messages",
-          filter: `conversation_id=eq.${selectedTicket.conversation_id}`,
-        },
-        () => loadMessages(selectedTicket.conversation_id),
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [selectedTicket?.conversation_id]);
-
   const visibleIncidents = useMemo(
     () =>
       incidents.filter((incident) => {
@@ -143,6 +82,99 @@ export default function App() {
     [incidents, agencyFilter, statusFilter, query],
   );
 
+  // Selection is derived from what's visible, so filters never leave the detail
+  // panel showing a hidden incident, and stale rows from a previous selection
+  // never flash while the next ones load.
+  const selectedIncident =
+    visibleIncidents.find((item) => item.id === selectedIncidentId) || visibleIncidents[0];
+  const incidentId = selectedIncident?.id;
+  const incidentTickets = tickets.filter((ticket) => ticket.incident_id === incidentId);
+  const selectedTicket =
+    incidentTickets.find((item) => item.id === selectedTicketId) || incidentTickets[0];
+  const conversationId = selectedTicket?.conversation_id;
+  const conversationMessages = messages.filter((item) => item.conversation_id === conversationId);
+  const selectedAgency =
+    selectedIncident?.agencies ||
+    agencies.find((item) => item.id === selectedIncident?.agency_id);
+
+  // Effects only set state inside promise callbacks, and ignore responses
+  // that arrive after the selection changed (a slow reply for the previous
+  // incident can't overwrite the current one).
+  useEffect(() => {
+    if (!supabaseReady) return;
+    const refresh = () =>
+      fetchDashboard()
+        .then((data) => { setIncidents(data.incidents); setAgencies(data.agencies); })
+        .catch((loadError) => setError(loadError.message))
+        .finally(() => setLoading(false));
+    refresh();
+    const channel = supabase
+      .channel("dashboard-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "incidents" }, refresh)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // Stats + AI briefing for the "Viewing as" agency; refreshed when incidents
+  // change (the backend caches the briefing, so this is cheap).
+  useEffect(() => {
+    if (!supabaseReady) return;
+    let current = true;
+    fetchInsights(agencyFilter)
+      .then((data) => { if (current) setInsights(data); })
+      .catch(() => { /* the incident list stays usable without analytics */ });
+    return () => { current = false; };
+  }, [agencyFilter, incidents]);
+
+  // Reports for the selected incident, kept live: a new report joining the
+  // incident appears without clicking away and back.
+  useEffect(() => {
+    if (!supabaseReady || !incidentId) return;
+    let current = true;
+    const refresh = () =>
+      fetchTickets(incidentId)
+        .then((rows) => { if (current) setTickets(rows); })
+        .catch((loadError) => { if (current) setError(loadError.message); });
+    refresh();
+    const channel = supabase
+      .channel(`tickets-${incidentId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tickets", filter: `incident_id=eq.${incidentId}` },
+        refresh,
+      )
+      .subscribe();
+    return () => { current = false; supabase.removeChannel(channel); };
+  }, [incidentId]);
+
+  // SMS conversation for the selected report, kept live.
+  useEffect(() => {
+    if (!supabaseReady || !conversationId) return;
+    let current = true;
+    const refresh = () =>
+      fetchMessages(conversationId)
+        .then((rows) => { if (current) setMessages(rows); })
+        .catch((loadError) => { if (current) setError(loadError.message); });
+    refresh();
+    const channel = supabase
+      .channel(`messages-${conversationId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
+        refresh,
+      )
+      .subscribe();
+    return () => { current = false; supabase.removeChannel(channel); };
+  }, [conversationId]);
+
+  // After a button press, refresh right away rather than waiting for realtime.
+  async function reloadDashboard() {
+    const data = await fetchDashboard();
+    setIncidents(data.incidents);
+    setAgencies(data.agencies);
+  }
+
+
   function success(text) {
     setNotice(text);
     window.setTimeout(() => setNotice(""), 4000);
@@ -153,12 +185,13 @@ export default function App() {
     setBusy(true); setError("");
     try {
       await api(`/api/incidents/${selectedIncident.id}`, "PATCH", { status });
+      setTickets(await fetchTickets(selectedIncident.id)); // reports move with the incident
       success(
         status === "confirmed"
           ? "Incident confirmed. Every reporter was notified."
           : "Incident resolved. Every reporter was notified.",
       );
-      await loadDashboard();
+      await reloadDashboard();
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -172,7 +205,7 @@ export default function App() {
     try {
       await api(`/api/tickets/${selectedTicket.id}`, "PATCH", { status: "in_progress" });
       success("Report moved to review. The reporter was notified.");
-      await loadTickets(selectedIncident.id);
+      setTickets(await fetchTickets(selectedIncident.id));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -190,7 +223,7 @@ export default function App() {
       });
       setMessage("");
       success("SMS sent to the reporter.");
-      await loadMessages(selectedTicket.conversation_id);
+      setMessages(await fetchMessages(selectedTicket.conversation_id));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -286,8 +319,8 @@ export default function App() {
                     </div>
 
                     <div className="conversation">
-                      <div className="section-head"><div>RESIDENT REPORTS</div><small>{tickets.length} linked</small></div>
-                      {tickets.map((ticket) => (
+                      <div className="section-head"><div>RESIDENT REPORTS</div><small>{incidentTickets.length} linked</small></div>
+                      {incidentTickets.map((ticket) => (
                         <button key={ticket.id} className={`ticket ${ticket.id === selectedTicket?.id ? "active" : ""}`} onClick={() => setSelectedTicketId(ticket.id)}>
                           <div><strong>REPORT #{ticket.id}</strong><time>{relative(ticket.created_at)}</time></div>
                           <p>{ticket.summary}</p>
@@ -303,8 +336,8 @@ export default function App() {
                           <div><small>CREDIBILITY</small><p>{selectedTicket.credibility}{selectedTicket.credibility_reason ? ` — ${selectedTicket.credibility_reason}` : ""}</p></div>
                         </div>
                         <div className="conversation">
-                          <div className="section-head"><div>SMS CONVERSATION</div><small>{messages.length} messages</small></div>
-                          {messages.map((item) => <div key={item.id} className={`bubble ${item.sender}`}><small>{item.sender}</small>{item.body}</div>)}
+                          <div className="section-head"><div>SMS CONVERSATION</div><small>{conversationMessages.length} messages</small></div>
+                          {conversationMessages.map((item) => <div key={item.id} className={`bubble ${item.sender}`}><small>{item.sender}</small>{item.body}</div>)}
                         </div>
                         <form className="message-form" onSubmit={sendMessage}>
                           <input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Text an update to this resident…"/>
