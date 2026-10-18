@@ -1,83 +1,119 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { supabase, supabaseReady } from "./supabase";
 import "./App.css";
-import Navbar from "./components/Navbar";
-import Sidebar from "./components/Sidebar";
-import ReportCard from "./components/ReportCard";
-import Icon from "./components/Icon";
-import { initialReports } from "./data/reports";
-import { organizations, routeReport } from "./data/routing";
-import { analyzeReport } from "./services/routingService";
 
-const filters = ["All reports", "Critical", "High", "Unverified"];
+const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const statusNames = { new: "Pending", in_progress: "Under review", resolved: "Resolved" };
+const categoryNames = { INFRASTRUCTURE: "Infrastructure", PUBLIC_SAFETY: "Public safety", ENVIRONMENTAL: "Environmental", HUMAN_SERVICES: "Human services", ANIMAL_CONTROL: "Animal control" };
 
 export default function App() {
-  const [reports, setReports] = useState(initialReports);
-  const [selectedId, setSelectedId] = useState(initialReports[0].id);
-  const [filter, setFilter] = useState("All reports");
+  const [tickets, setTickets] = useState([]);
+  const [agencies, setAgencies] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [agencyFilter, setAgencyFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
   const [query, setQuery] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [activeView, setActiveView] = useState("Overview");
-  const [toast, setToast] = useState("");
-  const [demoOpen, setDemoOpen] = useState(false);
-  const [publishOpen, setPublishOpen] = useState(false);
-  const selected = reports.find((report) => report.id === selectedId) || reports[0];
-  const route = routeReport(selected.category);
+  const [view, setView] = useState("reports");
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const selected = tickets.find((ticket) => ticket.id === selectedId) || tickets[0];
 
-  const visibleReports = useMemo(() => reports.filter((report) => {
-    const matchesFilter = filter === "All reports" || report.priority === filter || report.status === filter;
-    return matchesFilter && `${report.title} ${report.location} ${report.id} ${report.category}`.toLowerCase().includes(query.toLowerCase());
-  }), [reports, filter, query]);
-
-  function showToast(message) { setToast(message); window.setTimeout(() => setToast(""), 3200); }
-  function updateStatus(status) {
-    setReports((items) => items.map((item) => item.id === selected.id ? { ...item, status } : item));
-    showToast(status === "Verified" ? "Second check passed — report verified." : "Report rejected and removed from the public queue.");
+  async function load() {
+    if (!supabaseReady) { setLoading(false); return; }
+    const [{ data: ticketRows, error: ticketError }, { data: agencyRows, error: agencyError }] = await Promise.all([
+      supabase.from("tickets").select("*").is("duplicate_of", null).order("priority_score", { ascending: false }).order("created_at", { ascending: false }),
+      supabase.from("agencies").select("*").order("name"),
+    ]);
+    if (ticketError || agencyError) setError(ticketError?.message || agencyError?.message);
+    else {
+      setTickets(ticketRows || []); setAgencies(agencyRows || []);
+      setSelectedId((current) => current ?? ticketRows?.[0]?.id ?? null);
+    }
+    setLoading(false);
   }
-  function simulateAlert() {
-    const raw = { id:"RPT-2847", title:"Large pothole blocking traffic", description:"A deep pothole is forcing cars into the next lane near a busy intersection. Another driver reported the same road hazard.", location:"Sunset Blvd & N Western Ave", locationData:{lat:34.0982,lng:-118.3092}, submittedAt:new Date().toISOString(), status:"Unverified", time:"Just now", source:"SMS", coordinates:{x:29,y:34} };
-    const incoming = analyzeReport(raw, reports);
-    setReports((items) => items.some((item) => item.id === incoming.id) ? items : [incoming, ...items]);
-    setSelectedId(incoming.id); setDemoOpen(true); setActiveView("Overview");
-  }
-  function publishAlert() {
-    if (selected.status !== "Verified") { showToast("Verify this report before publishing it publicly."); setPublishOpen(false); return; }
-    setPublishOpen(false); showToast("Published to the public map, web feed, and SMS subscribers.");
-  }
-  function navigate(view) { setActiveView(view); document.querySelector(".dashboard")?.scrollTo?.(0,0); }
 
-  return <div className="app-shell">
-    <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} onNavigate={navigate} activeView={activeView} />
-    {menuOpen && <button className="scrim" onClick={() => setMenuOpen(false)} aria-label="Close menu" />}
-    <div className="app-main">
-      <Navbar query={query} setQuery={setQuery} onMenu={() => setMenuOpen(true)} />
-      <main className="dashboard">
-        <header className="welcome-row"><div><span className="eyebrow">LA COUNTY RAPID RESPONSE</span><h1>{activeView === "Organizations" ? "Organization network" : "Good afternoon, Montserrat."}</h1><p>{activeView === "Organizations" ? "Every report is matched by service type, jurisdiction, and urgency." : "Here’s what needs your team’s attention across Los Angeles."}</p></div><div className="header-actions"><button className="demo-button" onClick={simulateAlert}>▶ Demo incoming alert</button><button className="primary-button" onClick={()=>setPublishOpen(true)}><Icon name="megaphone" /> Publish alert</button></div></header>
+  async function loadMessages(conversationId) {
+    if (!conversationId || !supabaseReady) return;
+    const { data } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at");
+    setMessages(data || []);
+  }
 
-        {activeView === "Organizations" ? <OrganizationNetwork /> : <>
-          <section className="metrics-grid" aria-label="Report summary"><Metric icon="warning" label="Needs verification" value="12" note="4 critical" tone="red" /><Metric icon="radio" label="Active incidents" value="8" note="2 added today" tone="orange" /><Metric icon="check" label="Resolved this week" value="47" note="↑ 18% from last week" tone="green" /><Metric icon="users" label="Residents reached" value="12.4k" note="Across 6 alerts" tone="blue" /></section>
-          <section className="workspace-grid">
-            <div className="queue-panel panel"><div className="panel-heading"><div><span className="live-dot" /> LIVE QUEUE</div><button>View all <span>›</span></button></div><div className="filter-row">{filters.map((item)=><button key={item} className={filter===item?"active":""} onClick={()=>setFilter(item)}>{item}</button>)}</div><div className="report-list">{visibleReports.map((report)=><ReportCard key={report.id} report={report} selected={report.id===selected.id} onSelect={setSelectedId} />)}{!visibleReports.length&&<div className="empty-state">No reports match your search.</div>}</div></div>
-            <article className="detail-panel panel">
-              <div className="incident-map" aria-label="Incident map preview"><span className="road road-one"/><span className="road road-two"/><span className="road road-three"/><span className="road road-four"/>{reports.map((report)=><button key={report.id} aria-label={`Select ${report.title}`} onClick={()=>setSelectedId(report.id)} className={`map-pin ${report.priority.toLowerCase()} ${selected.id===report.id?"active":""}`} style={{left:`${report.coordinates.x}%`,top:`${report.coordinates.y}%`}}><i/></button>)}<span className="map-city">LOS ANGELES</span><span className="map-street street-one">Western Ave</span><span className="map-street street-two">W 3rd St</span><button className="expand-map">Expand map ↗</button></div>
-              <div className="detail-content"><div className="detail-labels"><span className={`priority ${selected.priority.toLowerCase()}`}>{selected.priority}</span><span className={`status ${selected.status.toLowerCase().replace(" ","-")}`}>● {selected.status}</span></div><p className="report-id">{selected.id} · VIA {selected.source.toUpperCase()}</p><h2>{selected.title}</h2><p className="description">{selected.description}</p>
-                <div className="ai-pipeline"><div className="ai-step done"><span>AI 1</span><div><small>ROUTING AI</small><strong>{selected.category}</strong><p>{selected.confidence}% classification confidence</p></div></div><b>→</b><div className="ai-step verified"><span>AI 2</span><div><small>VERIFICATION AI</small><strong>Evidence consistent</strong><p>{selected.verification}% verification confidence</p></div></div></div>
-                <div className="route-card"><div className="org-logo" style={{background:route.color}}>{route.short}</div><div><small>BEST ORGANIZATION MATCH</small><strong>{route.name}</strong><p>{route.services}</p></div><span className="route-score">{selected.confidence}% match</span></div>
-                <div className="fact-grid"><Fact icon="pin" label="LOCATION" value={selected.location}/><Fact icon="phone" label="CONTACT" value={route.phone}/><Fact icon="shield" label="SECOND AI CHECK" value={`${selected.verification}% passed`}/><Fact icon="folder" label="CATEGORY" value={selected.category}/></div>
-                <div className="detail-actions"><button className="reject-button" onClick={()=>updateStatus("Rejected")}>× Reject</button><a className="contact-button" href={route.url} target="_blank" rel="noreferrer"><Icon name="phone"/> Contact</a><button className="verify-button" onClick={()=>updateStatus("Verified")}><Icon name="check"/> Verify report</button></div>
-              </div>
-            </article>
-          </section>
-          <section className="lower-grid"><div className="activity-panel panel"><div className="panel-title"><div><h2>Response activity</h2><p>Average verification time this week</p></div><strong>14m <small>↓ 22%</small></strong></div><div className="bars">{[38,55,43,76,62,86,69].map((height,index)=><div key={index}><span style={{height:`${height}%`}}/><small>{["S","M","T","W","T","F","S"][index]}</small></div>)}</div></div><div className="impact-panel panel"><div className="impact-icon"><Icon name="shield"/></div><div><span className="eyebrow">YOUR TEAM’S IMPACT</span><h2>Information reached 2,340 residents</h2><p>Through 15 verified alerts this month.</p></div><button onClick={()=>navigate("Organizations")}>View network ↗</button></div></section>
-        </>}
-      </main>
-    </div>
-    {demoOpen&&<Modal title="Live routing demo" onClose={()=>setDemoOpen(false)}><div className="demo-flow"><div><span>1</span><small>SMS RECEIVED</small><strong>“Large pothole blocking traffic…”</strong></div><b>→</b><div><span>2</span><small>AI CLASSIFIED</small><strong>{selected.category} · {selected.confidence}%</strong></div><b>→</b><div><span>3</span><small>DUPLICATE CHECK</small><strong>{selected.duplicateMatches?.length || 0} nearby match found</strong></div><b>→</b><div><span>4</span><small>ROUTED INSTANTLY</small><strong>{route.name}</strong></div></div><p className="modal-note">Priority: <strong>{selected.priority}</strong> ({selected.priorityScore}/100). The organization receives a structured case now. The public only sees it after human approval.</p><button className="verify-button modal-action" onClick={()=>setDemoOpen(false)}>Open routed report</button></Modal>}
-    {publishOpen&&<Modal title="Publish public alert" onClose={()=>setPublishOpen(false)}><div className="publish-card"><span className={`status ${selected.status.toLowerCase()}`}>● {selected.status}</span><h3>{selected.title}</h3><p>{selected.location}</p></div><p className="modal-note">This publishes to the public website map, the live alerts feed, subscribed SMS users, and participating community organizations. Reporter identity and private contact details are never shown.</p><div className="channel-list"><span>✓ Public alert map</span><span>✓ Website feed</span><span>✓ SMS subscribers</span><span>✓ Partner network</span></div><button className="verify-button modal-action" onClick={publishAlert}>Publish to public channels</button></Modal>}
-    {toast&&<div className="toast"><Icon name="check"/> {toast}</div>}
+  useEffect(() => {
+    load();
+    if (!supabaseReady) return;
+    const channel = supabase.channel("agency-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, load)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+  useEffect(() => { loadMessages(selected?.conversation_id); }, [selected?.conversation_id]);
+  useEffect(() => {
+    if (!supabaseReady || !selected?.conversation_id) return;
+    const channel = supabase.channel(`messages-${selected.conversation_id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${selected.conversation_id}` }, () => loadMessages(selected.conversation_id))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [selected?.conversation_id]);
+
+  const agency = agencies.find((item) => item.id === selected?.agency_id);
+  const visible = useMemo(() => tickets.filter((ticket) => {
+    const agencyMatch = agencyFilter === "all" || ticket.agency_id === agencyFilter;
+    const statusMatch = statusFilter === "all" || (statusFilter === "active" ? ticket.status !== "resolved" && ticket.credibility !== "spam" : statusFilter === "flagged" ? ticket.credibility !== "ok" : ticket.status === statusFilter);
+    const text = `${ticket.id} ${ticket.summary} ${ticket.location_text} ${ticket.category}`.toLowerCase();
+    return agencyMatch && statusMatch && text.includes(query.toLowerCase());
+  }), [tickets, agencyFilter, statusFilter, query]);
+
+  const stats = useMemo(() => ({
+    needsReview: tickets.filter((t) => t.status === "new" && t.credibility !== "spam").length,
+    critical: tickets.filter((t) => t.priority === "CRITICAL" && t.status !== "resolved").length,
+    active: tickets.filter((t) => t.status !== "resolved" && t.credibility !== "spam").length,
+    reached: tickets.filter((t) => t.published_at).reduce((sum, t) => sum + (t.report_count || 1), 0),
+  }), [tickets]);
+
+  async function patchTicket(body, success) {
+    if (!selected) return;
+    setError("");
+    const response = await fetch(`${API}/api/tickets/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(data.error || "The backend could not update this report."); return; }
+    setNotice(success); window.setTimeout(() => setNotice(""), 3500); await load();
+  }
+
+  async function sendMessage(event) {
+    event.preventDefault(); if (!message.trim() || !selected) return;
+    const response = await fetch(`${API}/api/tickets/${selected.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: message }) });
+    if (!response.ok) { setError("The message could not be sent."); return; }
+    setMessage(""); setNotice("Update sent to the resident by SMS."); await loadMessages(selected.conversation_id);
+  }
+
+  if (!supabaseReady) return <Setup />;
+  return <div className="shell">
+    <aside className="sidebar">
+      <div className="brand"><span>C4Y</span><div><strong>Community4You</strong><small>LA County response</small></div></div>
+      <nav><button className={view === "reports" ? "active" : ""} onClick={() => setView("reports")}>▦ Incident queue</button><button className={view === "organizations" ? "active" : ""} onClick={() => setView("organizations")}>◎ Organizations</button></nav>
+      <div className="org-list"><p>ROUTING NETWORK</p><button className={agencyFilter === "all" ? "selected" : ""} onClick={() => { setAgencyFilter("all"); setView("reports"); }}><i className="all"/>All organizations <b>{tickets.filter(t=>t.status!=="resolved").length}</b></button>{agencies.map((org) => <button key={org.id} className={agencyFilter === org.id ? "selected" : ""} onClick={() => { setAgencyFilter(org.id); setView("reports"); }}><i className={org.id}/><span>{org.name}</span><b>{tickets.filter(t=>t.agency_id===org.id&&t.status!=="resolved").length}</b></button>)}</div>
+      <div className="live"><span/> Supabase realtime connected</div>
+    </aside>
+    <main>
+      <header className="topbar"><div><p>AGENCY OPERATIONS CENTER</p><h1>{view === "organizations" ? "Organization network" : "Incident command"}</h1></div><div className="top-actions"><input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="Search reports…"/><span className="avatar">MM</span></div></header>
+      {error && <div className="error">{error}</div>}{notice && <div className="notice">✓ {notice}</div>}
+      {view === "organizations" ? <Organizations agencies={agencies} tickets={tickets} onOpen={(id)=>{setAgencyFilter(id);setView("reports");}}/> : <>
+        <section className="stats"><Stat label="Needs review" value={stats.needsReview} sub={`${stats.critical} critical`} tone="red"/><Stat label="Active incidents" value={stats.active} sub="Live from Supabase" tone="amber"/><Stat label="Organizations online" value={agencies.length} sub="Across LA County" tone="blue"/><Stat label="Reports represented" value={stats.reached} sub="On public alert feed" tone="green"/></section>
+        <div className="command-grid">
+          <section className="queue card"><div className="section-head"><div><span className="pulse"/>LIVE QUEUE</div><small>{visible.length} reports</small></div><div className="filters">{[["active","Active"],["new","Pending"],["in_progress","Review"],["resolved","Resolved"],["flagged","Flagged"],["all","All"]].map(([key,label])=><button key={key} className={statusFilter===key?"active":""} onClick={()=>setStatusFilter(key)}>{label}</button>)}</div><div className="ticket-list">{loading ? <div className="empty">Loading live reports…</div> : visible.map(ticket=><Ticket key={ticket.id} ticket={ticket} agency={agencies.find(a=>a.id===ticket.agency_id)} active={ticket.id===selected?.id} onClick={()=>setSelectedId(ticket.id)}/>)}{!loading&&!visible.length&&<div className="empty">No reports match these filters.</div>}</div></section>
+          <section className="detail card">{selected ? <><div className="detail-top"><div><span className={`priority ${selected.priority.toLowerCase()}`}>{selected.priority}</span>{selected.credibility!=="ok"&&<span className="flag">⚑ {selected.credibility}</span>}</div><span>REPORT #{selected.id}</span></div><h2>{selected.summary}</h2><p className="location">⌖ {selected.location_text || "Location still being clarified"}</p><div className="route"><div className={`agency-mark ${agency?.id}`}>{agency?.name?.slice(0,2).toUpperCase()}</div><div><small>AI ROUTED TO</small><strong>{agency?.name || selected.agency_id}</strong><p>{agency?.description}</p></div><b>{selected.priority_score}/100</b></div><div className="analysis"><div><small>WHY THIS PRIORITY</small><p>{selected.priority_reason}</p></div><div><small>SUGGESTED RESPONSE</small><p>{selected.suggested_action || "Agency review required."}</p></div><div><small>DUPLICATE ANALYSIS</small><p>{selected.report_count > 1 ? `${selected.report_count} community reports matched this incident.` : "No matching report found."}</p></div><div><small>REPORTER</small><p>{maskPhone(selected.phone)}</p></div></div><div className="conversation"><div className="section-head"><div>SMS CONVERSATION</div><small>{messages.length} messages</small></div>{messages.map(item=><div key={item.id} className={`bubble ${item.sender}`}><small>{item.sender}</small>{item.body}</div>)}</div><form className="message-form" onSubmit={sendMessage}><input value={message} onChange={e=>setMessage(e.target.value)} placeholder="Text an update to the resident…"/><button>Send SMS</button></form><div className="actions"><button className="review" onClick={()=>patchTicket({status:"in_progress"},"Report moved to agency review; the resident was notified.")}>Begin review</button><button className="resolve" onClick={()=>patchTicket({status:"resolved"},"Report resolved; the resident was notified.")}>Resolve</button><button className="publish" onClick={()=>patchTicket({published:!selected.published_at},selected.published_at?"Removed from the public site.":"Published on the public alert website.")}>{selected.published_at ? "Unpublish alert" : "Publish public alert"}</button></div></> : <div className="empty">Select a report.</div>}</section>
+        </div>
+      </>}
+    </main>
   </div>;
 }
 
-function OrganizationNetwork(){return <section className="organization-view"><div className="routing-banner"><span>AI ROUTING DIRECTORY</span><h2>One report. The right response team.</h2><p>Routing AI scores service fit, location coverage, urgency, and agency availability. Verification AI independently checks the evidence before public release.</p></div><div className="org-grid">{Object.entries(organizations).map(([category,org])=><article className="org-card" key={category}><div className="org-card-top"><div className="org-logo" style={{background:org.color}}>{org.short}</div><span className="online-dot">● ACTIVE</span></div><small>{category.toUpperCase()}</small><h3>{org.name}</h3><p>{org.services}</p><dl><div><dt>Coverage</dt><dd>{org.coverage}</dd></div><div><dt>Contact</dt><dd>{org.phone}</dd></div></dl><a href={org.url} target="_blank" rel="noreferrer">Open official service ↗</a></article>)}</div></section>}
-function Modal({title,onClose,children}){return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal" onMouseDown={(event)=>event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">LA COUNTY RAPID RESPONSE</span><h2>{title}</h2></div><button onClick={onClose}>×</button></div>{children}</section></div>}
-function Metric({icon,label,value,note,tone}){return <div className="metric-card"><div className={`metric-icon ${tone}`}><Icon name={icon}/></div><div><p>{label}</p><strong>{value}</strong><span>{note}</span></div></div>}
-function Fact({icon,label,value}){return <div><Icon name={icon}/><span><small>{label}</small><strong>{value}</strong></span></div>}
+function Ticket({ticket,agency,active,onClick}) { return <button className={`ticket ${active?"active":""}`} onClick={onClick}><div><span className={`dot ${ticket.priority.toLowerCase()}`}/><strong>#{ticket.id} · {categoryNames[ticket.category]}</strong><time>{relative(ticket.created_at)}</time></div><h3>{ticket.subcategory}</h3><p>{ticket.summary}</p><footer><span>{agency?.name || ticket.agency_id}</span><b>{statusNames[ticket.status]}</b>{ticket.report_count>1&&<em>+{ticket.report_count-1} similar</em>}</footer></button> }
+function Stat({label,value,sub,tone}) { return <article className="stat"><i className={tone}/><div><p>{label}</p><strong>{value}</strong><small>{sub}</small></div></article> }
+function Organizations({agencies,tickets,onOpen}) { return <section className="network"><div className="network-hero"><p>AI ROUTING DIRECTORY</p><h2>Every report reaches the team built to solve it.</h2><span>The backend classifies each SMS, scores urgency, checks credibility, and stores its agency match in Supabase.</span></div><div className="org-cards">{agencies.map(org=>{const active=tickets.filter(t=>t.agency_id===org.id&&t.status!=="resolved").length;return <article key={org.id}><div className={`agency-mark ${org.id}`}>{org.name.slice(0,2).toUpperCase()}</div><small>{org.categories?.map(c=>categoryNames[c]).join(", ")}</small><h3>{org.name}</h3><p>{org.description}</p><footer><strong>{active}</strong><span>active reports</span><button onClick={()=>onOpen(org.id)}>Open queue →</button></footer></article>})}</div></section> }
+function Setup() { return <main className="setup"><span>C4Y</span><h1>Connect the agency dashboard</h1><p>Create <code>agency-dashboard/.env.local</code> and add the two browser-safe Supabase values from your project settings.</p><pre>VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co{"\n"}VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY{"\n"}VITE_API_URL=http://localhost:3000</pre><p>Restart <code>npm run dev</code> after saving it. Never place the Supabase secret key here.</p></main> }
+function maskPhone(phone="") { if(phone.startsWith("web:")) return "Web reporter"; return phone.length>=4 ? `(•••) •••-${phone.slice(-4)}` : "Anonymous"; }
+function relative(value) { const minutes=Math.max(0,Math.round((Date.now()-new Date(value).getTime())/60000)); return minutes<1?"now":minutes<60?`${minutes}m`:minutes<1440?`${Math.floor(minutes/60)}h`:`${Math.floor(minutes/1440)}d`; }
