@@ -84,7 +84,7 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
         ├─ attach the ticket (tickets.incident_id) or create a new incident; update the incident's
         │  title, summary, priority, report_count, priority_score ─► Supabase
         └─ if it joined an existing incident, text the resident:
-           "Others have reported this too. We've added your report to incident #1001…"
+           "Others have reported this too. Report #101 is grouped with theirs…"
                                                                          │ Realtime
                                                                          ▼
  Dashboard (agency-dashboard/)

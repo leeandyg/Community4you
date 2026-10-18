@@ -34,16 +34,17 @@ export async function changeIncidentStatus(
   else await advanceIncidentTickets(id, ["new", "in_progress"], "resolved");
 
   const agency = await getAgencyName(incident.agencyId);
-  const message =
+  // Each resident hears about their own report number, not the incident's.
+  const message = (ticketId: number) =>
     status === "confirmed"
-      ? `Update on incident #${id} (${incident.title}): ${agency} has confirmed it and is responding. Thanks for reporting!`
-      : `Update on incident #${id} (${incident.title}): ${agency} marked it resolved. Thanks for reporting!`;
+      ? `Update on report #${ticketId} (${incident.title}): ${agency} has confirmed it and is responding. Thanks for reporting!`
+      : `Update on report #${ticketId} (${incident.title}): ${agency} marked it resolved. Thanks for reporting!`;
 
   // One text per resident, even if they sent several reports about it.
   const latestPerPhone = new Map<string, Ticket>();
   for (const t of open) latestPerPhone.set(t.phone, t);
   const results = await Promise.allSettled(
-    [...latestPerPhone.values()].map((t) => notifyReporter(t.conversationId, t.phone, message, "agency")),
+    [...latestPerPhone.values()].map((t) => notifyReporter(t.conversationId, t.phone, message(t.id), "agency")),
   );
   for (const r of results) if (r.status === "rejected") console.error("[actions] notify failed:", r.reason);
   return { incident, notified: results.filter((r) => r.status === "fulfilled").length };

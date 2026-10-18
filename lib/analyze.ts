@@ -102,11 +102,12 @@ export async function analyzeTicket(ticketId: number): Promise<AnalysisOutcome |
 
   const joinedExisting = Boolean(matched && !current);
   if (joinedExisting) {
-    let text = `Others have reported this too. We've added your report to incident #${incident.id} so responders see the full picture.`;
+    // Residents only ever see their own report number; incident numbers are for agencies.
+    let text = `Others have reported this too. Report #${ticket.id} is grouped with theirs so responders see the full picture.`;
     // Already verified by an agency: say who is on it, and start this report like the others.
     if (incident.status === "confirmed") {
       const agency = await getAgencyName(incident.agencyId);
-      text = `Others have reported this too, and ${agency} is already responding. We've added your report to incident #${incident.id}.`;
+      text = `Others have reported this too, and ${agency} is already responding. Report #${ticket.id} is grouped with theirs.`;
       await setTicketStatus(ticket.id, "in_progress");
     }
     await notifyReporter(ticket.conversationId, ticket.phone, text);
