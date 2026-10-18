@@ -5,11 +5,13 @@ import { agencyFor } from "./routing";
 import { incidentScore } from "./scoring";
 import {
   createIncident,
+  getAgencyName,
   getIncident,
   getTicket,
   linkTicketToIncident,
   listMessages,
   listOpenIncidents,
+  setTicketStatus,
   updateIncident,
   type Incident,
   type Ticket,
@@ -99,11 +101,14 @@ export async function analyzeTicket(ticketId: number): Promise<AnalysisOutcome |
 
   const joinedExisting = Boolean(matched && !current);
   if (joinedExisting) {
-    await notifyReporter(
-      ticket.conversationId,
-      ticket.phone,
-      `Others have reported this too. We've added your report to incident #${incident.id} so responders see the full picture.`,
-    );
+    let text = `Others have reported this too. We've added your report to incident #${incident.id} so responders see the full picture.`;
+    // Already verified by an agency: say who is on it, and start this report like the others.
+    if (incident.status === "confirmed") {
+      const agency = await getAgencyName(incident.agencyId);
+      text = `Others have reported this too, and ${agency} is already responding. We've added your report to incident #${incident.id}.`;
+      await setTicketStatus(ticket.id, "in_progress");
+    }
+    await notifyReporter(ticket.conversationId, ticket.phone, text);
   }
   return { incident, joinedExisting, reason: result?.match_reason ?? "analysis unavailable; kept existing grouping" };
 }

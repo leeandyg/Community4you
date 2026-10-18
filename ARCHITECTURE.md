@@ -106,8 +106,17 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
 **Incidents** are real-world events (a fire, a pothole). Every non-spam report belongs to one:
 - A report on its own becomes a one-report incident; matching reports join it. Comparing against the short list of *open incidents* (not every past report) keeps the AI's job small and gives it the merged context.
 - Matching rule: the same physical problem at the same place, in any wording or language. The same kind of problem elsewhere, or a different problem on the same corner, is a different incident. When unsure, the AI starts a new one.
-- Status: `active` (detected automatically) → `confirmed` (an agency verified it) → `resolved`. Resolving an incident texts everyone who reported it.
-- `alert_message` / `alert_published_at` are reserved for the **Publish alert** add-on.
+- Status, set by agency staff on the dashboard:
+
+  | Status | Means | Reports | Residents are texted |
+  |---|---|---|---|
+  | `active` | Detected by the AI; nobody has checked it yet | `new` | (nothing) |
+  | `confirmed` | Staff verified it's real and own it | `new` → `in_progress` | "…has confirmed it and is responding" |
+  | `resolved` | Done; no longer matched by new reports | all → `resolved` | "…marked it resolved. Thanks for reporting!" (skips reports already resolved) |
+
+- **Confirm doesn't change priority.** It makes an incident more *certain*, not more *dangerous*. The dashboard shows two queues instead: **Needs attention** (`active`, by score) and **In progress** (`confirmed`).
+- A new report that joins an incident is told "Others have reported this too…". If the incident is already **confirmed**, it says "Others have reported this too, and <agency> is already responding…", and the report starts as `in_progress`.
+- **Publish alert** (add-on) is only allowed on `confirmed` incidents, so the AI can never broadcast something unverified. `alert_message` / `alert_published_at` are reserved for it.
 
 **Fake-report filtering:**
 - The AI gives each report a `credibility`, and a cap of `REPORTS_PER_HOUR` (default 5) new reports per number backs it up. Emergencies bypass the cap.
@@ -183,9 +192,9 @@ All routes live on the backend and allow requests from the dashboard's address.
 | `PATCH /api/incidents/:id` | `{ "status": "confirmed" \| "resolved" }` | Updates the incident (and, on resolve, its reports) and texts **every** resident who reported it |
 | `PATCH /api/tickets/:id` | `{ "status": "in_progress" \| "resolved" }` | Updates one report's status and texts that resident: "Update on #142: LA Animal Services is on it." |
 | `POST /api/tickets/:id/messages` | `{ "body": "..." }` | Saves an `agency` message and texts it to the resident. Their reply joins the same conversation. |
-| `GET /api/insights` | (none) | `{ counts: {...}, criticalOpen: [...], hotspots: [...], summary: "..." }` |
+| `GET /api/insights` | (none). Optional `?agency=streets`, `?summary=false` | `{ counts: { openIncidents, byPriority, byCategory, byStatus, byAgency, reportsLast24h, flaggedLast24h, resolvedLast24h }, needsAttention: [...], hotspots: [...], summary, summaryGeneratedAt }`. The AI summary is cached and regenerated only when incidents change (at most once a minute). |
 | `POST /api/tickets/:id/reanalyze` | (none) | Optional. Re-runs the incident analysis on one ticket. |
-| `POST /api/incidents/:id/alert` | `{ "message": "..." }` | **Add-on.** Publish alert: saves `alert_message` and texts the incident's reporters. |
+| `POST /api/incidents/:id/alert` | `{ "message": "..." }` | **Add-on.** Publish alert (confirmed incidents only): saves `alert_message` and texts the incident's reporters. |
 
 ---
 
@@ -202,7 +211,7 @@ All routes live on the backend and allow requests from the dashboard's address.
 | B4 | Add `credibility` and `suggested_action` to triage; per-number rate limit | done | |
 | B5 | **Incidents**: `analyze.ts` attaches each submitted report to an open incident or starts one, merges the summary, re-prioritizes with corroboration (no coordinates needed) | done | dashboard D3 |
 | B6 | `/api/incidents/:id` (confirm / resolve → texts every reporter) and `/api/tickets/:id` status + message routes | done | dashboard D6 |
-| B7 | `/api/insights` (stats + AI summary) | | dashboard D7 |
+| B7 | `/api/insights` (stats + AI summary) | done | dashboard D7 |
 | B8 | Deploy to Vercel, register the phone's webhook once | | demo |
 
 **Dashboard (teammate):**
@@ -236,7 +245,7 @@ app/api/
   tickets/[id]/route.ts         [done] PATCH status
   tickets/[id]/messages/route.ts[done] agency message
   tickets/[id]/reanalyze/route.ts [todo, optional]
-  insights/route.ts             [todo]
+  insights/route.ts             [done] stats + AI shift summary
 lib/
   engine.ts      [done] conversation rules
   triage.ts      [done] single-tip AI, incl. credibility + suggested_action
@@ -249,7 +258,7 @@ lib/
   analyze.ts     [done] incident grouping + priority
   scoring.ts     [done] priority_score
   notify.ts      [done] text a reporter outside the normal reply
-  insights.ts    [todo]
+  insights.ts    [done] stats queries + cached AI briefing
 scripts/
   chat.ts                [done] `npm run chat`: text the bot from the terminal
   register-webhook.ts    [done] `npm run gateway:register -- https://<host>`

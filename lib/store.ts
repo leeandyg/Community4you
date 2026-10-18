@@ -340,6 +340,30 @@ export async function advanceIncidentTickets(incidentId: number, from: TicketSta
   );
 }
 
+export async function listIncidents(filter: { agencyId?: string; statuses?: IncidentStatus[] } = {}): Promise<Incident[]> {
+  let query = db().from("incidents").select("*").order("priority_score", { ascending: false }).order("last_reported_at", { ascending: false });
+  if (filter.agencyId) query = query.eq("agency_id", filter.agencyId);
+  if (filter.statuses) query = query.in("status", filter.statuses);
+  return check(await query, "listIncidents").map(toIncident);
+}
+
+// Ticket counts for the stats row. flagged = credibility other than ok.
+export async function countTickets(filter: { sinceMs: number; agencyId?: string; flagged?: boolean }): Promise<number> {
+  let query = db()
+    .from("tickets")
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", new Date(Date.now() - filter.sinceMs).toISOString());
+  if (filter.agencyId) query = query.eq("agency_id", filter.agencyId);
+  if (filter.flagged) query = query.neq("credibility", "ok");
+  const { count, error } = await query;
+  if (error) throw new Error(`[store] countTickets: ${error.message}`);
+  return count ?? 0;
+}
+
+export async function listAgencies(): Promise<{ id: string; name: string }[]> {
+  return check(await db().from("agencies").select("id, name").order("name"), "listAgencies");
+}
+
 // Display name from the agencies table (names may be edited to official ones).
 export async function getAgencyName(id: string): Promise<string> {
   const row = check(await db().from("agencies").select("name").eq("id", id).maybeSingle(), "getAgencyName");
