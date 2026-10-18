@@ -23,6 +23,7 @@ async function api(path, method = "GET", body) {
 }
 
 export default function App() {
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("c4y-theme") !== "light");
   const [incidents, setIncidents] = useState([]);
   const [agencies, setAgencies] = useState([]);
   const [tickets, setTickets] = useState([]);
@@ -67,7 +68,7 @@ export default function App() {
     }
     setLoading(false);
     try {
-      setInsights(await api("/api/insights"));
+      setInsights(await api("/api/insights?summary=false"));
     } catch {
       // The incident list remains usable if analytics are temporarily unavailable.
     }
@@ -148,6 +149,14 @@ export default function App() {
     window.setTimeout(() => setNotice(""), 4000);
   }
 
+  function toggleTheme() {
+    setDarkMode((current) => {
+      const next = !current;
+      localStorage.setItem("c4y-theme", next ? "dark" : "light");
+      return next;
+    });
+  }
+
   async function changeIncidentStatus(status) {
     if (!selectedIncident) return;
     setBusy(true); setError("");
@@ -202,7 +211,7 @@ export default function App() {
 
   const counts = insights?.counts || {};
   return (
-    <div className="shell">
+    <div className={`shell ${darkMode ? "dark" : ""}`}>
       <aside className="sidebar">
         <div className="brand"><span>C4Y</span><div><strong>Community4You</strong><small>LA County response</small></div></div>
         <nav>
@@ -225,7 +234,13 @@ export default function App() {
       <main>
         <header className="topbar">
           <div><p>AGENCY OPERATIONS CENTER</p><h1>{view === "organizations" ? "Organization network" : "Incident command"}</h1></div>
-          <div className="top-actions"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search incidents…"/><span className="avatar">MM</span></div>
+          <div className="top-actions">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search incidents…"/>
+            <button className="theme-toggle" onClick={toggleTheme} aria-label={darkMode ? "Use light mode" : "Use dark mode"}>
+              {darkMode ? "☀ Light" : "☾ Dark"}
+            </button>
+            <span className="avatar">MM</span>
+          </div>
         </header>
         {error && <div className="error">{error}</div>}
         {notice && <div className="notice">✓ {notice}</div>}
