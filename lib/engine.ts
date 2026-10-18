@@ -2,6 +2,7 @@ import { detectEmergency } from "./emergency";
 import { agencyFor } from "./routing";
 import {
   addMessage,
+  countRecentTickets,
   createConversation,
   findRecentConversation,
   getTicket,
@@ -20,6 +21,9 @@ import { triage, type TriageResult } from "./triage";
 const CONVERSATION_WINDOW_MS = 60 * 60 * 1000;
 // After this many follow-up questions we submit with whatever we have.
 const MAX_QUESTIONS = 2;
+// New reports one number can open per hour before we stop running the AI on them.
+const REPORTS_PER_HOUR = Number(process.env.REPORTS_PER_HOUR ?? 5);
+const HOUR_MS = 60 * 60 * 1000;
 
 export interface InboundMessage {
   channel: Channel;
@@ -38,6 +42,9 @@ const EMERGENCY_REPLY =
   "If anyone is in danger, CALL 911 NOW. This line is not monitored for emergencies.";
 const FALLBACK_REPLY =
   "Thanks, we got your message. What's the nearest address or cross street?";
+const SPAM_REPLY = "Thanks for your message. To report a problem, tell us what is happening and where.";
+const RATE_LIMIT_REPLY =
+  "You've sent several reports in the last hour, so we're reviewing those first. If anyone is in danger, call 911.";
 
 export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
   const text = msg.body.trim();
@@ -52,6 +59,13 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
     return { reply: "Okay, starting a new report. What's going on, and where?", ticketId: null, emergency: false };
   }
 
+  const emergencyKeyword = detectEmergency(text);
+
+  // Cap new reports per number (floods, spam bots). Emergencies always get through.
+  if (!convo && !emergencyKeyword && (await countRecentTickets(msg.from, HOUR_MS)) >= REPORTS_PER_HOUR) {
+    return { reply: RATE_LIMIT_REPLY, ticketId: null, emergency: false };
+  }
+
   convo ??= await createConversation(msg.from, msg.channel);
   const conversation = convo;
 
@@ -64,7 +78,6 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
   // The list may or may not already include the message saved in parallel.
   const transcript = [...earlier.filter((m) => m.id !== inbound.id), inbound];
 
-  const emergencyKeyword = detectEmergency(text);
   const result = await triage(transcript);
 
   // Once a report is flagged as an emergency it stays flagged.
@@ -101,6 +114,12 @@ function nextReply(
     return { reply: `${EMERGENCY_REPLY} We've also logged report #${ticket.id}.`, patch: { state: "submitted" } };
   }
 
+  // Spam stays flagged on the dashboard and isn't submitted. The conversation
+  // stays open, so a real report sent next is re-judged with the full transcript.
+  if (result.credibility === "spam") {
+    return { reply: SPAM_REPLY, patch: {} };
+  }
+
   // Follow-up text after submission: it already enriched the ticket above.
   if (convo.state === "submitted") {
     return { reply: `Thanks, we added that to report #${ticket.id}. Reply NEW to report something else.`, patch: {} };
@@ -123,13 +142,14 @@ const BASE_SCORE = { CRITICAL: 100, HIGH: 70, MEDIUM: 40, LOW: 10 } as const;
 
 function ticketFields(result: TriageResult, emergency: boolean, mediaUrl: string | null): TicketFields {
   const priority = emergency ? "CRITICAL" : result.priority;
+  const spam = result.credibility === "spam" && !emergency;
   return {
     agencyId: agencyFor(result.category).id,
     category: result.category,
     subcategory: result.subcategory,
     summary: result.summary,
     locationText: result.location_text,
-    lat: null, // filled by geocoding (next step)
+    lat: null, // filled by geocoding (add-on)
     lng: null,
     hazardType: result.hazard_type,
     peopleInvolved: result.people_involved,
@@ -137,7 +157,10 @@ function ticketFields(result: TriageResult, emergency: boolean, mediaUrl: string
     priorityReason: result.priority_reason,
     isEmergency: emergency,
     photoUrl: mediaUrl,
-    priorityScore: BASE_SCORE[priority],
+    priorityScore: spam ? 0 : BASE_SCORE[priority],
+    suggestedAction: result.suggested_action,
+    credibility: result.credibility,
+    credibilityReason: result.credibility === "ok" ? null : result.credibility_reason,
   };
 }
 

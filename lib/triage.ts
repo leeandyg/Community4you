@@ -9,9 +9,11 @@ export const CATEGORIES = [
   "ANIMAL_CONTROL",
 ] as const;
 export const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+export const CREDIBILITY = ["ok", "suspicious", "spam"] as const;
 
 export type Category = (typeof CATEGORIES)[number];
 export type Priority = (typeof PRIORITIES)[number];
+export type Credibility = (typeof CREDIBILITY)[number];
 
 export const TriageSchema = z.object({
   category: z.enum(CATEGORIES),
@@ -28,6 +30,11 @@ export const TriageSchema = z.object({
   emergency: z.boolean(),
   missing_fields: z.array(z.string()),
   clarifying_question: z.string().nullable(),
+  credibility: z.enum(CREDIBILITY),
+  credibility_reason: z.string().nullable().describe("Why it is suspicious or spam; null when ok"),
+  suggested_action: z
+    .string()
+    .describe("One concrete next step for the responding agency, in English, under 120 characters"),
 });
 
 export type TriageResult = z.infer<typeof TriageSchema>;
@@ -57,6 +64,14 @@ Priority:
 - LOW: cosmetic or minor.
 
 Clarifying question: pick the single missing detail that would most change how responders act. A usable location is required, so if there is none, ask for the nearest address or cross street. Otherwise ask about the most important safety detail (is the animal contained, are there sparks, is anyone hurt, is the road blocked) only if it is still unknown. If the report is actionable, set clarifying_question to null. Never re-ask something already answered. Keep it under 140 characters, friendly, plain text, no emoji, and in the same language the resident is writing in.
+
+Credibility:
+- spam: no real problem is being reported: test messages, jokes, gibberish, ads, insults, or obviously impossible events.
+- suspicious: a plausible problem but with signs it may not be genuine: contradictory details, exaggeration that doesn't fit the rest, or a copy-paste style message.
+- ok: everything else. Vague, short, misspelled, upset or non-English reports are ok; they just need follow-up questions. When unsure, choose ok.
+Give credibility_reason only for suspicious or spam.
+
+Suggested action: one concrete next step for the agency (who to send, what to do first, any safety precaution), based only on what is known.
 
 Base every field on what the resident actually said. Use null rather than guessing. Update the record using everything in the conversation, including the resident's latest answers.`;
 

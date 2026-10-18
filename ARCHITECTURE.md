@@ -247,7 +247,7 @@ All routes live on the backend and allow requests from the dashboard's address.
 | B1 | `supabase/schema.sql` + `seed.sql`: agencies, plus ~15 realistic USC-area tickets including 2 duplicates and 1 spam | done | dashboard D2 |
 | B2 | `store.ts` → Supabase (same functions) | done | everything after |
 | B3 | `geocode.ts` | deferred (add-on with the map) | map |
-| B4 | Add `credibility` and `suggested_action` to triage; per-number rate limit | | |
+| B4 | Add `credibility` and `suggested_action` to triage; per-number rate limit | done | |
 | B5 | `analyze.ts`: duplicates (same category, open, last 48 h; the AI compares location + description, no coordinates needed), report counts, priority increases, `priority_score`, flood detection | | |
 | B6 | `/api/tickets/:id` status + message routes (texts the resident) | | dashboard D6 |
 | B7 | `/api/insights` (stats + AI summary) | | dashboard D7 |
@@ -285,7 +285,7 @@ app/api/
   insights/route.ts             [todo]
 lib/
   engine.ts      [done] conversation rules
-  triage.ts      [done] single-tip AI (add credibility + suggested_action)
+  triage.ts      [done] single-tip AI, incl. credibility + suggested_action
   emergency.ts   [done] 911 keyword check
   routing.ts     [done] category → agency
   smsgate.ts     [done] gateway send + signature check

@@ -11,7 +11,8 @@ async function main() {
   const { handleMessage } = await import("../lib/engine");
   const { listTickets } = await import("../lib/store");
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "you> " });
-  const from = "+15555550100";
+  // Text as a different "phone" with CHAT_FROM=+15555550142 npm run chat
+  const from = process.env.CHAT_FROM ?? "+15555550100";
   console.log("Texting as", from, "(Ctrl+C to quit)\n");
   // Piped input closes readline early, so only show the prompt interactively.
   const prompt = () => process.stdin.isTTY && rl.prompt();

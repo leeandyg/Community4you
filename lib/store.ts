@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Category, Priority } from "./triage";
+import type { Category, Credibility, Priority } from "./triage";
 
 // Persistence on Supabase (schema: supabase/schema.sql). Uses the secret key,
 // so this module must only ever run on the server. Rows are snake_case in the
@@ -7,7 +7,6 @@ import type { Category, Priority } from "./triage";
 
 export type Channel = "sms" | "web";
 export type Sender = "reporter" | "bot" | "agency";
-export type Credibility = "ok" | "suspicious" | "spam";
 export type TicketStatus = "new" | "in_progress" | "resolved";
 
 export interface Conversation {
@@ -65,7 +64,7 @@ export type TicketFields = Pick<
   Ticket,
   | "agencyId" | "category" | "subcategory" | "summary" | "locationText" | "lat" | "lng"
   | "hazardType" | "peopleInvolved" | "priority" | "priorityReason" | "isEmergency"
-  | "photoUrl" | "priorityScore"
+  | "photoUrl" | "priorityScore" | "suggestedAction" | "credibility" | "credibilityReason"
 >;
 
 let client: SupabaseClient | null = null;
@@ -160,6 +159,9 @@ export async function upsertTicket(convo: Conversation, fields: TicketFields): P
     priority_reason: fields.priorityReason,
     is_emergency: fields.isEmergency,
     priority_score: fields.priorityScore,
+    suggested_action: fields.suggestedAction,
+    credibility: fields.credibility,
+    credibility_reason: fields.credibilityReason,
     updated_at: new Date().toISOString(),
   };
   // A later text without a photo keeps the earlier photo.
@@ -186,6 +188,17 @@ export async function upsertTicket(convo: Conversation, fields: TicketFields): P
 export async function getTicket(id: number): Promise<Ticket | null> {
   const row = check(await db().from("tickets").select("*").eq("id", id).maybeSingle(), "getTicket");
   return row ? toTicket(row) : null;
+}
+
+// How many tickets this number has opened recently (per-number report cap).
+export async function countRecentTickets(phone: string, withinMs: number): Promise<number> {
+  const { count, error } = await db()
+    .from("tickets")
+    .select("id", { count: "exact", head: true })
+    .eq("phone", phone)
+    .gte("created_at", new Date(Date.now() - withinMs).toISOString());
+  if (error) throw new Error(`[store] countRecentTickets: ${error.message}`);
+  return count ?? 0;
 }
 
 export async function listTickets(filter: { phone?: string } = {}): Promise<Ticket[]> {
