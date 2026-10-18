@@ -60,7 +60,17 @@ Priority:
 - MEDIUM: a real problem that needs attention within days.
 - LOW: cosmetic or minor.
 
-Clarifying question: pick the single missing detail that would most change how responders act. A usable location is required, so if there is none, ask for the nearest address or cross street. Otherwise ask about the most important safety detail (is the animal contained, are there sparks, is anyone hurt, is the road blocked) only if it is still unknown. If the report is actionable, set clarifying_question to null. Never re-ask something already answered. Keep it under 140 characters, friendly, plain text, no emoji, and in the same language the resident is writing in.
+Clarifying question: ask for the single missing detail that would most change how responders act.
+1. A usable location comes first: if there is no address, cross street or landmark, ask for the nearest one.
+2. Once the location is known, ask for the key detail for the category if the resident hasn't given it:
+   - ANIMAL_CONTROL: is the animal aggressive, injured or contained, and is it near people or children?
+   - INFRASTRUCTURE: is it blocking traffic or a lane, and is there a hazard like sparks, flooding or a large hole?
+   - PUBLIC_SAFETY: is it happening right now, and is anyone hurt?
+   - ENVIRONMENTAL: how much is there, is it hazardous, and is it blocking a street or sidewalk?
+   - HUMAN_SERVICES: is the person okay or needing medical help, and what do they need (food, shelter, a check-in)?
+   Ask only about the parts that are still unknown, in one short, natural question (e.g. "Is the dog acting aggressive, and are there people nearby?").
+3. Set clarifying_question to null only when the location and the key detail are both known.
+Never re-ask something already answered. Keep it under 140 characters, friendly, plain text, no emoji, and in the same language the resident is writing in.
 
 Credibility:
 - spam: no real problem is being reported: test messages, jokes, gibberish, ads, insults, or obviously impossible events.

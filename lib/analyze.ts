@@ -44,7 +44,7 @@ const SYSTEM_PROMPT = `You are the incident analyst for Community4You, a service
 Same incident: the same physical problem at the same place, even with different wording, language, spelling, or a landmark instead of a cross street; or a clear update to it ("the fire spread to the building"). Different incident: the same kind of problem somewhere else, or a different problem at the same place (a pothole and a broken streetlight on one corner are two incidents). If unsure, do not match.
 
 Incident record:
-- title: "<problem> at <location>".
+- title: "<Problem> at <location>", naming the problem the way residents described it, not a reinterpretation (a resident's "broken fire hydrant spraying water" stays a fire hydrant, not a "water main leak"). Use sentence case and standard street names: "Broken fire hydrant spraying water at Hoover St & 23rd St".
 - summary: merge what all reports say into 1-3 sentences: what is happening, where, hazards, who is at risk, and what has changed. Note conflicting details. Never invent details.
 - priority: judge the incident as a whole: how severe the hazard is, how urgent the reports sound, whether vulnerable people are involved (children, elderly, unhoused, disabled), whether it is getting worse, and corroboration. Several independent reports make an incident more certain and usually more urgent. Don't raise a single report, or one flagged suspicious, above its own priority. CRITICAL only for immediate risk to life.
 - priority_reason: one sentence; mention corroboration when it matters.`;

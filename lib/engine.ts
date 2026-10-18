@@ -1,4 +1,5 @@
 import { detectEmergency } from "./emergency";
+import { classifyFollowUp } from "./followup";
 import { agencyFor } from "./routing";
 import { BASE_SCORE } from "./scoring";
 import {
@@ -64,6 +65,24 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
   }
 
   const emergencyKeyword = detectEmergency(text);
+
+  // A text after the report was submitted: more detail, a new problem, or just "thanks"?
+  if (convo?.state === "submitted" && convo.ticketId != null) {
+    const [submitted, recent] = await Promise.all([getTicket(convo.ticketId), listMessages(convo.id)]);
+    const kind = submitted ? await classifyFollowUp(submitted, recent, text) : "more_info";
+    if (kind === "new_problem") {
+      await updateConversation(convo.id, { state: "closed" });
+      convo = null; // falls through to a fresh report below
+    } else if (kind === "other" && !emergencyKeyword) {
+      const reply = `Got it. Report #${convo.ticketId} is open. Reply STATUS for updates or NEW to report something else.`;
+      await Promise.all([
+        addMessage(convo.id, "reporter", text, msg.mediaUrl ?? null),
+        addMessage(convo.id, "bot", reply),
+        updateConversation(convo.id, {}),
+      ]);
+      return { reply, ticketId: convo.ticketId, emergency: false, analyzeTicketId: null };
+    }
+  }
 
   // Cap new reports per number (floods, spam bots). Emergencies always get through.
   if (!convo && !emergencyKeyword && (await countRecentTickets(msg.from, HOUR_MS)) >= REPORTS_PER_HOUR) {
