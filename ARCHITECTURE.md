@@ -30,7 +30,7 @@ Agencies see tickets appear live on a dashboard, and changing a ticket's status 
 
 | App | Folder | Who | What it does |
 |---|---|---|---|
-| **Backend** (Next.js 15, TypeScript) | repo root | Andy | Receives texts, runs the AI, saves tickets, sends SMS, serves the API routes the dashboard calls |
+| **Backend** (Next.js 15, TypeScript) | repo root | Andy | Receives texts, runs the AI, saves tickets, sends SMS, serves the API routes the dashboard calls, and the **public website** at `/` (landing page + live feed of published alerts) |
 | **Dashboard** (Vite + React) | `agency-dashboard/` | teammate | The agencies' view: ticket list, ticket detail, filters, stats (map is an add-on) |
 | **Supabase** (Postgres + Realtime) | `supabase/*.sql` | shared | The single source of truth. Both apps talk to it. |
 
@@ -277,6 +277,13 @@ agency-dashboard/        teammate's Vite + React app
 ```
 
 ---
+
+## Working on the code together
+
+- Work on **`main`**, or on a short branch that's merged into `main` the same hour (GitHub pull request). Vercel only updates the live sites from `main`; other branches get private preview links.
+- `git pull` before you start and before you push. Small commits.
+- The backend (repo root) and the dashboard (`agency-dashboard/`) are separate apps. If you need a backend change for the dashboard, ask rather than editing backend files from an old copy.
+- There is one database schema: [supabase/schema.sql](supabase/schema.sql). Don't keep copies elsewhere.
 
 ## Setup
 

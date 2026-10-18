@@ -18,6 +18,7 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      "agency-dashboard/**", // separate Vite app with its own ESLint config
     ],
   },
 ];

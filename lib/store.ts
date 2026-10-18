@@ -374,6 +374,42 @@ export async function listAgencies(): Promise<{ id: string; name: string }[]> {
   return check(await db().from("agencies").select("id, name").order("name"), "listAgencies");
 }
 
+// Public alerts feed: incidents an agency published (Publish alert add-on).
+// Only safe, public fields: no phone numbers or conversations.
+export interface PublicAlert {
+  id: number;
+  category: Category;
+  title: string;
+  alertMessage: string | null;
+  locationText: string | null;
+  priority: Priority;
+  status: IncidentStatus;
+  reportCount: number;
+  alertPublishedAt: Date;
+}
+
+export async function listPublicAlerts(): Promise<PublicAlert[]> {
+  const rows = check(
+    await db()
+      .from("incidents")
+      .select("id, category, title, alert_message, location_text, priority, status, report_count, alert_published_at")
+      .not("alert_published_at", "is", null)
+      .order("alert_published_at", { ascending: false }),
+    "listPublicAlerts",
+  ) as any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+  return rows.map((r) => ({
+    id: r.id,
+    category: r.category,
+    title: r.title,
+    alertMessage: r.alert_message,
+    locationText: r.location_text,
+    priority: r.priority,
+    status: r.status,
+    reportCount: r.report_count,
+    alertPublishedAt: new Date(r.alert_published_at),
+  }));
+}
+
 // Display name from the agencies table (names may be edited to official ones).
 // Cached for a minute: it's read on most replies and rarely changes.
 const AGENCY_NAME_TTL_MS = 60 * 1000;
