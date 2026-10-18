@@ -11,9 +11,9 @@ Residents **text a real phone number** to describe a neighborhood problem ("aggr
 
 Agencies work **incidents** on a live dashboard. Confirming or resolving one texts every resident who reported it, and a public website shows published alerts. Life-threatening keywords get an immediate "CALL 911" reply. `blueprint.md` has the product pitch.
 
-**Status (2026-10-17):**
+**Status (2026-10-18):**
 - **The whole core loop is live and tested with a real phone:** text → AI triage → ticket → incident → dashboard → Confirm/Resolve → SMS back. Backend and public site at https://community4you.vercel.app; dashboard at https://community4you-xaix.vercel.app.
-- **Next:** geocoding + map (planned below), README, demo prep.
+- **Next:** geocoding + map (planned below), demo prep. [README.md](README.md) is the overview for judges.
 
 **Core scope (everything else is a stretch goal):**
 - categorize and route
@@ -136,7 +136,7 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
 **Fake-report filtering:**
 - The AI gives each report a `credibility`, and a cap of `REPORTS_PER_HOUR` (default 20) new reports per number backs it up. Emergencies bypass the cap.
 - `spam` tickets aren't sent to an agency, and the resident gets a neutral reply.
-- Spam gets no incident, so it never appears in the incident queue. A **Flagged** view (`tickets` where `credibility != 'ok'`) is planned for the dashboard but not built.
+- Spam gets no incident, so it never appears in the incident queue. The dashboard's **Flagged reports** view (`tickets` where `credibility != 'ok'`) lists them; **Not spam** (`PATCH /api/tickets/:id` with `{ "credibility": "ok" }`) clears the flag, runs the incident analysis so the report joins the queue, and, if the resident got the spam reply, texts them that it's being looked at.
 
 **Priority:** the AI sets the priority *level* with context; `priority_score` (`lib/scoring.ts`) turns it into a sort key:
 - base by level: CRITICAL 100, HIGH 70, MEDIUM 40, LOW 10
@@ -205,7 +205,7 @@ All routes live on the backend and allow requests from the dashboard's address.
 | Route | Body | Effect |
 |---|---|---|
 | `PATCH /api/incidents/:id` | `{ "status": "confirmed" \| "resolved" }` | Updates the incident (and, on resolve, its reports) and texts **every** resident who reported it |
-| `PATCH /api/tickets/:id` | `{ "status": "in_progress" \| "resolved" }` | Updates one report's status and texts that resident: "Update on #142: LA Animal Services is on it." |
+| `PATCH /api/tickets/:id` | `{ "status": "in_progress" \| "resolved" }` or `{ "credibility": "ok" }` | Status: updates one report and texts that resident: "Update on #142: LA Animal Services is on it." Credibility ("Not spam"): clears the AI's flag and groups the report into an incident. |
 | `POST /api/tickets/:id/messages` | `{ "body": "..." }` | Saves an `agency` message and texts it to the resident. Their reply joins the same conversation. |
 | `GET /api/insights` | (none). Optional `?agency=streets`, `?summary=false` | `{ counts: { openIncidents, byPriority, byCategory, byStatus, byAgency, reportsLast24h, flaggedLast24h, resolvedLast24h }, needsAttention: [...], hotspots: [...], summary, summaryGeneratedAt }`. The AI summary is cached and regenerated only when incidents change (at most once a minute). |
 | `POST /api/tickets/:id/reanalyze` | (none) | **Not built** (optional). Re-runs the incident analysis on one ticket. |
@@ -230,7 +230,7 @@ All routes live on the backend and allow requests from the dashboard's address.
 | B8 | Deploy to Vercel, register the phone's webhook once | done: both apps live and auto-deploy on push; phone webhook registered, signing key on | demo |
 | B9 | Tuning + review fixes: category detail questions, follow-up classifier, titles in residents' words, DB agency names in texts, Twilio removed, SMS access control, `SMS_DRY_RUN` | done | |
 | B10 | Merge the teammate's dashboard + public website; fix live dashboard bugs (live report list, filter-aware selection, per-agency stats, trailing-slash API URL) | done | |
-| B11 | README for judges / Devpost | todo | submission |
+| B11 | README for judges / Devpost | done ([README.md](README.md)) | submission |
 
 **Dashboard (teammate):** step-by-step guide in [agency-dashboard/TODO.md](agency-dashboard/TODO.md).
 
@@ -240,7 +240,7 @@ All routes live on the backend and allow requests from the dashboard's address.
 | D2 | Supabase reads plus Realtime | done |
 | D3 | **Incident list** as the main view, with its reports, suggested action, credibility and SMS conversation | done |
 | D4 | Map with pins colored by priority | planned with geocoding; seed data already has `lat`/`lng` |
-| D5 | Filters: agency ("Viewing as"), status queues and search are done; category and **Flagged** views are not | partly done |
+| D5 | Filters: agency ("Viewing as"), status queues, search and the **Flagged reports** view (with Not spam) are done; a category filter is not | mostly done |
 | D5b | **Publish alert** button on confirmed incidents | not built (deprioritized) |
 | D6 | Confirm / Resolve incidents, review a report, message the resident | done |
 | D7 | Stats row + AI shift briefing from `/api/insights` (scoped to the "Viewing as" agency) | done |
