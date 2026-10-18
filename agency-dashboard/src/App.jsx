@@ -67,7 +67,7 @@ export default function App() {
     }
     setLoading(false);
     try {
-      setInsights(await api("/api/insights?summary=false"));
+      setInsights(await api("/api/insights"));
     } catch {
       // The incident list remains usable if analytics are temporarily unavailable.
     }
@@ -263,7 +263,14 @@ export default function App() {
                 {selectedIncident ? (
                   <>
                     <div className="detail-top">
-                      <div><span className={`priority ${selectedIncident.priority.toLowerCase()}`}>{selectedIncident.priority}</span></div>
+                      <div>
+                        <span className={`priority ${selectedIncident.priority.toLowerCase()}`}>{selectedIncident.priority}</span>
+                        <span className={`incident-status ${selectedIncident.status}`}>
+                          {selectedIncident.status === "active" && "● NEEDS ATTENTION"}
+                          {selectedIncident.status === "confirmed" && "✓ CONFIRMED"}
+                          {selectedIncident.status === "resolved" && "✓ RESOLVED"}
+                        </span>
+                      </div>
                       <span>INCIDENT #{selectedIncident.id}</span>
                     </div>
                     <h2>{selectedIncident.title || selectedIncident.summary}</h2>
