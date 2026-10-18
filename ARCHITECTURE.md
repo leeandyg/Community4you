@@ -134,7 +134,7 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
 - Senders who don't qualify are ignored entirely: no reply, nothing saved. With neither variable set, everyone is answered. Web chat isn't affected.
 
 **Fake-report filtering:**
-- The AI gives each report a `credibility`, and a cap of `REPORTS_PER_HOUR` (default 5) new reports per number backs it up. Emergencies bypass the cap.
+- The AI gives each report a `credibility`, and a cap of `REPORTS_PER_HOUR` (default 20) new reports per number backs it up. Emergencies bypass the cap.
 - `spam` tickets aren't sent to an agency, and the resident gets a neutral reply.
 - Spam gets no incident, so it never appears in the incident queue. A **Flagged** view (`tickets` where `credibility != 'ok'`) is planned for the dashboard but not built.
 

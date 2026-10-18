@@ -25,7 +25,7 @@ const CONVERSATION_WINDOW_MS = 60 * 60 * 1000;
 // After this many follow-up questions we submit with whatever we have.
 const MAX_QUESTIONS = 2;
 // New reports one number can open per hour before we stop running the AI on them.
-const REPORTS_PER_HOUR = Number(process.env.REPORTS_PER_HOUR ?? 5);
+const REPORTS_PER_HOUR = Number(process.env.REPORTS_PER_HOUR ?? 20);
 const HOUR_MS = 60 * 60 * 1000;
 
 export interface InboundMessage {
