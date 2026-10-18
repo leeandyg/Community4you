@@ -10,6 +10,7 @@ import * as readline from "node:readline";
 async function main() {
   const { handleMessage } = await import("../lib/engine");
   const { listTickets } = await import("../lib/store");
+  const { analyzeTicket } = await import("../lib/analyze");
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "you> " });
   // Text as a different "phone" with CHAT_FROM=+15555550142 npm run chat
   const from = process.env.CHAT_FROM ?? "+15555550100";
@@ -26,9 +27,20 @@ async function main() {
       continue;
     }
     const started = Date.now();
-    const { reply, ticketId, emergency } = await handleMessage({ channel: "sms", from, body });
+    const { reply, ticketId, emergency, analyzeTicketId } = await handleMessage({ channel: "sms", from, body });
     const meta = [`${Date.now() - started}ms`, ticketId && `ticket #${ticketId}`, emergency && "EMERGENCY"];
-    console.log(`bot> ${reply}\n     (${meta.filter(Boolean).join(", ")})\n`);
+    console.log(`bot> ${reply}\n     (${meta.filter(Boolean).join(", ")})`);
+    if (analyzeTicketId) {
+      const outcome = await analyzeTicket(analyzeTicketId);
+      if (outcome) {
+        const i = outcome.incident;
+        console.log(
+          `     [analysis] ${outcome.joinedExisting ? "joined" : "incident"} #${i.id} "${i.title}" ` +
+            `${i.priority}/${i.priorityScore}, ${i.reportCount} report(s): ${outcome.reason}`,
+        );
+      }
+    }
+    console.log();
     prompt();
   }
 }

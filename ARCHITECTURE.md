@@ -6,7 +6,7 @@ Residents **text a real phone number** to describe a neighborhood problem ("aggr
 - sorts the report into a category and sends it to the right (mock) agency,
 - scores how urgent it is,
 - flags fake reports,
-- spots duplicates of reports already received,
+- groups reports about the same real-world event into one **incident**,
 - suggests what responders should do.
 
 Agencies see tickets appear live on a dashboard, and changing a ticket's status texts the resident back. Life-threatening keywords get an immediate "CALL 911" reply. `blueprint.md` has the product pitch.
@@ -15,7 +15,7 @@ Agencies see tickets appear live on a dashboard, and changing a ticket's status 
 - categorize and route
 - filter fake reports
 - suggest an action for each ticket
-- detect duplicates
+- group duplicate reports into incidents
 - prioritize
 - show live dashboard insights
 
@@ -73,19 +73,22 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
    4. geocode.ts     location_text → lat/lng   (add-on, deferred)
    5. store.ts       save ticket + messages → Supabase
    6. reply ──► sms-gate cloud API ──► Android phone ──SMS──► resident        (about 1–2s total)
-   7. in the background: analyze.ts   CROSS-TIP AI
-        ├─ SQL: open tickets with the same category in the last 48 h, and this number's recent reports
-        ├─ Gemini: "is this the same incident?"
-        ├─ write duplicate_of / report_count / priority / priority_score / credibility ─► Supabase
-        └─ optional second text: "Already reported as #142. We've added yours and raised its priority."
+   7. once the report is submitted, in the background: analyze.ts   CROSS-TIP AI (incidents)
+        ├─ SQL: up to 20 open incidents (active/confirmed) with a report in the last 48 h
+        ├─ Gemini Flash: "same real-world event as one of these, or new?" + the merged incident record
+        ├─ attach the ticket (tickets.incident_id) or create a new incident; update the incident's
+        │  title, summary, priority, report_count, priority_score ─► Supabase
+        └─ if it joined an existing incident, text the resident:
+           "Others have reported this too. We've added your report to incident #1001…"
                                                                          │ Realtime
                                                                          ▼
  Dashboard (agency-dashboard/)
-   ├─ reads tickets / agencies / messages from Supabase (live)
+   ├─ reads incidents / tickets / agencies / messages from Supabase (live)
    ├─ GET   /api/insights                  stats + AI shift summary
-   ├─ PATCH /api/tickets/:id               status change → texts the resident
+   ├─ PATCH /api/incidents/:id             confirm / resolve → texts every reporter on the incident
+   ├─ PATCH /api/tickets/:id               status change on one report → texts that resident
    ├─ POST  /api/tickets/:id/messages      agency message → texts the resident
-   └─ POST  /api/tickets/:id/reanalyze     (optional) re-run the AI on a ticket
+   └─ POST  /api/tickets/:id/reanalyze     (optional) re-run the incident analysis
 ```
 
 `/api/chat` runs the same `handleMessage()` for a web chat page. That page is both a no-phone way to report and the **demo backup** if the phone has problems.
@@ -97,18 +100,24 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
 | Step | Where | When | Produces |
 |---|---|---|---|
 | **Single-tip triage** | `lib/triage.ts` (one Gemini call per text) | Every incoming text, before the reply | `category` → agency, `priority` + reason, `emergency`, `credibility` + reason, `suggested_action`, `summary`, location, the follow-up question |
-| **Cross-tip analysis** | `lib/analyze.ts` (SQL + at most one Gemini call) | In the background after a ticket is saved, or from the "re-analyze" button | `duplicate_of`, the original's `report_count`, higher priority when 3+ people report the same thing, `priority_score`, a credibility downgrade if one number floods reports |
+| **Incident analysis** | `lib/analyze.ts` (SQL + one Gemini Flash call, Lite as backup) | In the background once a report is submitted (and when a submitted report gets new details) | Which **incident** the report belongs to (or a new one), the incident's merged title + summary, its priority using urgency, severity, vulnerable people, trend and **corroboration**, `report_count`, `priority_score` |
 | **Insights** | `lib/insights.ts` → `GET /api/insights` | When the dashboard asks; the AI summary is cached about 5 min | Counts by category / priority / agency, open CRITICAL tickets, hotspots, and a one-paragraph AI shift summary |
 
+**Incidents** are real-world events (a fire, a pothole). Every non-spam report belongs to one:
+- A report on its own becomes a one-report incident; matching reports join it. Comparing against the short list of *open incidents* (not every past report) keeps the AI's job small and gives it the merged context.
+- Matching rule: the same physical problem at the same place, in any wording or language. The same kind of problem elsewhere, or a different problem on the same corner, is a different incident. When unsure, the AI starts a new one.
+- Status: `active` (detected automatically) → `confirmed` (an agency verified it) → `resolved`. Resolving an incident texts everyone who reported it.
+- `alert_message` / `alert_published_at` are reserved for the **Publish alert** add-on.
+
 **Fake-report filtering:**
-- The AI gives each report a `credibility`, and simple rules back it up: a cap on reports per number per hour, plus catching gibberish and "test" messages.
+- The AI gives each report a `credibility`, and a cap of `REPORTS_PER_HOUR` (default 5) new reports per number backs it up. Emergencies bypass the cap.
 - `spam` tickets aren't sent to an agency, and the resident gets a neutral reply.
 - The dashboard hides them behind a **Flagged** filter instead of deleting them.
 
-**`priority_score`** (calculated by `analyze.ts`, used to sort the dashboard):
-- base by priority: CRITICAL 100, HIGH 70, MEDIUM 40, LOW 10
-- plus 10 for each additional report, up to +30
-- `spam` scores 0
+**Priority:** the AI sets the priority *level* with context; `priority_score` (`lib/scoring.ts`) turns it into a sort key:
+- base by level: CRITICAL 100, HIGH 70, MEDIUM 40, LOW 10
+- incidents add 10 per additional report, up to +30 (corroboration)
+- an emergency report always makes its incident CRITICAL; `spam` tickets score 0 and get no incident
 
 **Conversation rules** (`lib/engine.ts`, done):
 - The bot asks at most 2 follow-up questions, then submits.
@@ -141,86 +150,27 @@ The AI picks a **category**, and each category maps to exactly one agency. These
 **Allowed values:**
 - `category`: `INFRASTRUCTURE`, `PUBLIC_SAFETY`, `ENVIRONMENTAL`, `HUMAN_SERVICES`, `ANIMAL_CONTROL`
 - `priority`: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`
-- `status`: `new`, `in_progress`, `resolved`. The dashboard can *display* these as "Pending", "Under Review" and "Resolved".
+- ticket `status`: `new`, `in_progress`, `resolved`. The dashboard can *display* these as "Pending", "Under Review" and "Resolved".
+- incident `status`: `active`, `confirmed`, `resolved`
 - `credibility`: `ok`, `suspicious`, `spam`
 - `sender`: `reporter`, `bot`, `agency`
 
-```sql
-create table agencies (
-  id text primary key,
-  name text not null,
-  description text not null,
-  categories text[] not null
-);
+The source of truth is [supabase/schema.sql](supabase/schema.sql). Summary:
 
-create table conversations (
-  id uuid primary key default gen_random_uuid(),
-  phone text not null,                       -- E.164 for SMS, 'web:<session>' for web chat
-  channel text not null,                     -- 'sms' | 'web'
-  state text not null default 'clarifying',  -- 'clarifying' | 'submitted' | 'closed'
-  questions_asked int not null default 0,
-  ticket_id bigint,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+| Table | Key columns |
+|---|---|
+| `agencies` | `id` (stable: `streets`, `police`, `sanitation`, `outreach`, `animals`), `name`, `description`, `categories` |
+| `incidents` | `id` (from 1001), `agency_id`, `category`, `title`, `summary` (AI-merged), `location_text`, `lat`/`lng`, `priority`, `priority_reason`, `priority_score`, `status`, `report_count`, `first_reported_at`, `last_reported_at`, `alert_message`, `alert_published_at` |
+| `tickets` (one per report) | `id` (from 101), `conversation_id`, `phone` (mask in UI), `agency_id`, `incident_id`, `category`, `subcategory`, `summary`, `suggested_action`, `location_text`, `lat`/`lng`, `hazard_type`, `people_involved`, `priority`, `priority_reason`, `is_emergency`, `credibility`, `credibility_reason`, `photo_url`, `priority_score`, `analyzed_at`, `status` |
+| `conversations` | `id`, `phone`, `channel`, `state`, `questions_asked`, `ticket_id` |
+| `messages` | `id`, `conversation_id`, `sender`, `body`, `media_url`, `created_at` |
 
-create table tickets (
-  id bigint generated always as identity (start with 101) primary key,
-  conversation_id uuid not null references conversations(id),
-  phone text not null,                       -- mask in the UI: (•••) •••-0123
-  agency_id text not null references agencies(id),
-  -- single-tip triage (triage.ts)
-  category text not null,
-  subcategory text not null,                 -- 'pothole', 'aggressive stray dog'
-  summary text not null,                     -- one line for dispatchers
-  suggested_action text,                     -- 'Dispatch animal control; school nearby'
-  location_text text,                        -- 'Figueroa St & Jefferson Blvd, Los Angeles'
-  lat double precision,                      -- null until geocoded (no map pin)
-  lng double precision,
-  hazard_type text,
-  people_involved int,
-  priority text not null,
-  priority_reason text not null,
-  is_emergency boolean not null default false,
-  credibility text not null default 'ok',
-  credibility_reason text,
-  photo_url text,
-  -- cross-tip analysis (analyze.ts)
-  duplicate_of bigint references tickets(id),  -- set on the newer report, pointing at the original
-  report_count int not null default 1,         -- on the original: how many people reported it
-  priority_score int not null default 0,       -- sort key for the dashboard
-  analyzed_at timestamptz,
-  -- workflow
-  status text not null default 'new',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table messages (
-  id uuid primary key default gen_random_uuid(),
-  conversation_id uuid not null references conversations(id),
-  sender text not null,
-  body text not null,
-  media_url text,
-  created_at timestamptz not null default now()
-);
-
--- Anyone can read; only the backend's secret key can write.
-alter table agencies enable row level security;
-alter table conversations enable row level security;
-alter table tickets enable row level security;
-alter table messages enable row level security;
-create policy "public read" on agencies for select using (true);
-create policy "public read" on conversations for select using (true);
-create policy "public read" on tickets for select using (true);
-create policy "public read" on messages for select using (true);
-
-alter publication supabase_realtime add table tickets, messages;
-```
+`tickets.duplicate_of` and `tickets.report_count` are **deprecated** (replaced by incidents); they stay in the table per the only-add-columns rule. Realtime is on for `incidents`, `tickets` and `messages`. Browsers can read every table; only the backend's secret key can write.
 
 **Useful dashboard queries:**
-- Main list: `tickets` where `duplicate_of is null` and `credibility != 'spam'`, ordered by `priority_score desc, created_at desc`.
-- An original ticket's duplicates: `tickets` where `duplicate_of = <id>`.
+- Main list: `incidents` where `status != 'resolved'`, ordered by `priority_score desc, last_reported_at desc`, with `agencies(name)`.
+- An incident's reports: `tickets` where `incident_id = <id>`, ordered by `created_at`.
+- Flagged: `tickets` where `credibility != 'ok'`.
 - A ticket's text conversation: `messages` where `conversation_id = <ticket.conversation_id>`, ordered by `created_at`.
 
 ---
@@ -230,10 +180,12 @@ All routes live on the backend and allow requests from the dashboard's address.
 
 | Route | Body | Effect |
 |---|---|---|
-| `PATCH /api/tickets/:id` | `{ "status": "in_progress" \| "resolved" }` | Updates the status and texts the resident: "Update on #142: LA Animal Services is on it." |
+| `PATCH /api/incidents/:id` | `{ "status": "confirmed" \| "resolved" }` | Updates the incident (and, on resolve, its reports) and texts **every** resident who reported it |
+| `PATCH /api/tickets/:id` | `{ "status": "in_progress" \| "resolved" }` | Updates one report's status and texts that resident: "Update on #142: LA Animal Services is on it." |
 | `POST /api/tickets/:id/messages` | `{ "body": "..." }` | Saves an `agency` message and texts it to the resident. Their reply joins the same conversation. |
 | `GET /api/insights` | (none) | `{ counts: {...}, criticalOpen: [...], hotspots: [...], summary: "..." }` |
-| `POST /api/tickets/:id/reanalyze` | (none) | Optional. Re-runs the cross-tip analysis on one ticket. |
+| `POST /api/tickets/:id/reanalyze` | (none) | Optional. Re-runs the incident analysis on one ticket. |
+| `POST /api/incidents/:id/alert` | `{ "message": "..." }` | **Add-on.** Publish alert: saves `alert_message` and texts the incident's reporters. |
 
 ---
 
@@ -244,12 +196,12 @@ All routes live on the backend and allow requests from the dashboard's address.
 | # | Task | Status | Unblocks |
 |---|---|---|---|
 | B0 | SMS gateway webhook, single-tip triage, conversation rules | done | |
-| B1 | `supabase/schema.sql` + `seed.sql`: agencies, plus ~15 realistic USC-area tickets including 2 duplicates and 1 spam | done | dashboard D2 |
+| B1 | `supabase/schema.sql` + `seed.sql`: agencies, 13 incidents, 16 USC-area tickets (one 3-report incident, spam, suspicious) | done | dashboard D2 |
 | B2 | `store.ts` → Supabase (same functions) | done | everything after |
 | B3 | `geocode.ts` | deferred (add-on with the map) | map |
 | B4 | Add `credibility` and `suggested_action` to triage; per-number rate limit | done | |
-| B5 | `analyze.ts`: duplicates (same category, open, last 48 h; the AI compares location + description, no coordinates needed), report counts, priority increases, `priority_score`, flood detection | | |
-| B6 | `/api/tickets/:id` status + message routes (texts the resident) | | dashboard D6 |
+| B5 | **Incidents**: `analyze.ts` attaches each submitted report to an open incident or starts one, merges the summary, re-prioritizes with corroboration (no coordinates needed) | done | dashboard D3 |
+| B6 | `/api/incidents/:id` (confirm / resolve → texts every reporter) and `/api/tickets/:id` status + message routes | | dashboard D6 |
 | B7 | `/api/insights` (stats + AI summary) | | dashboard D7 |
 | B8 | Deploy to Vercel, register the phone's webhook once | | demo |
 
@@ -259,10 +211,11 @@ All routes live on the backend and allow requests from the dashboard's address.
 |---|---|---|
 | D1 | Cut Resources / Alerts / Login / Settings. Build the layout with local sample data **shaped exactly like the `tickets` table**. | Start now; it doesn't wait for anything |
 | D2 | Swap the sample data for Supabase reads plus Realtime | After B1 |
-| D3 | Ticket detail: summary, suggested action, priority reason, credibility, text conversation, linked duplicates | |
+| D3 | **Incident list** as the main view (title, summary, priority, report count, status); expand to its reports: summary, suggested action, credibility, text conversation | After B5 |
 | D4 | Map with pins colored by priority | **Add-on, deferred.** Seed data already has `lat`/`lng` |
 | D5 | Filters (agency, category, status, Flagged), sorted by `priority_score` | |
-| D6 | Resolve / Review buttons call `PATCH /api/tickets/:id` | After B6 |
+| D5b | **Publish alert** button on an incident | Add-on, deferred |
+| D6 | Confirm / Resolve on incidents call `PATCH /api/incidents/:id`; per-report buttons call `PATCH /api/tickets/:id` | After B6 |
 | D7 | Stats row + AI shift summary from `/api/insights` | After B7 |
 | D8 | Deploy the dashboard to Vercel (root folder `agency-dashboard/`) | |
 
@@ -279,6 +232,7 @@ app/api/
   smsgate/route.ts              [done] Android gateway webhook (main SMS channel)
   chat/route.ts                 [done] web chat → engine
   sms/route.ts                  [done, unused] Twilio webhook
+  incidents/[id]/route.ts       [todo] PATCH confirm / resolve
   tickets/[id]/route.ts         [todo] PATCH status
   tickets/[id]/messages/route.ts[todo] agency message
   tickets/[id]/reanalyze/route.ts [todo, optional]
@@ -291,7 +245,10 @@ lib/
   smsgate.ts     [done] gateway send + signature check
   store.ts       [done] Supabase persistence
   geocode.ts     [deferred] add-on with the map
-  analyze.ts     [todo] cross-tip AI
+  gemini.ts      [done] shared JSON call with model fallback
+  analyze.ts     [done] incident grouping + priority
+  scoring.ts     [done] priority_score
+  notify.ts      [done] text a reporter outside the normal reply
   insights.ts    [todo]
 scripts/
   chat.ts                [done] `npm run chat`: text the bot from the terminal
@@ -348,13 +305,13 @@ cd agency-dashboard && npm run dev                # dashboard on :5173
    - "Fire hydrant leaking", which should *not* get a 911 reply.
    - A report in Spanish.
    - Gibberish or "test", which should be flagged as spam.
-   - The same pothole sent from two numbers, which should be linked as a duplicate.
+   - The same pothole sent from two numbers (`CHAT_FROM=...`), which should join one incident.
    - `STATUS` and `NEW`.
 2. **Fake webhook:** send a signed `curl` POST to `/api/smsgate`. A valid request gets 204, a forged one 403, and a repeated one is ignored.
 3. **Real phone:** text the Android phone's number. The reply should arrive within a few seconds.
 4. **Full loop with the dashboard:**
    - A new text appears without refreshing.
-   - A duplicate increases the original's count.
+   - A matching report joins its incident and raises its report count.
    - Resolve texts the resident.
 5. **Production:** repeat steps 3 and 4 against the Vercel URLs the night before judging.
 

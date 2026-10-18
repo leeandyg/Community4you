@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { analyzeTicket } from "@/lib/analyze";
 import { handleMessage } from "@/lib/engine";
 import { isValidGatewaySignature, sendGatewaySms, type SmsReceivedEvent } from "@/lib/smsgate";
 
@@ -27,8 +28,9 @@ export async function POST(req: Request) {
   // Acknowledge right away; triage and the reply SMS run after the response.
   after(async () => {
     try {
-      const { reply } = await handleMessage({ channel: "sms", from, body: event.payload.message });
+      const { reply, analyzeTicketId } = await handleMessage({ channel: "sms", from, body: event.payload.message });
       await sendGatewaySms(from, reply);
+      if (analyzeTicketId) await analyzeTicket(analyzeTicketId);
     } catch (err) {
       console.error("[smsgate] failed to handle message:", err);
     }

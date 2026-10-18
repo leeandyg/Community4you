@@ -1,3 +1,5 @@
+import { after } from "next/server";
+import { analyzeTicket } from "@/lib/analyze";
 import { handleMessage } from "@/lib/engine";
 import { isValidTwilioRequest, twimlMessage } from "@/lib/twilio";
 
@@ -14,12 +16,15 @@ export async function POST(req: Request) {
   }
 
   const hasPhoto = Number(params.NumMedia ?? 0) > 0 && params.MediaContentType0?.startsWith("image/");
-  const { reply } = await handleMessage({
+  const { reply, analyzeTicketId } = await handleMessage({
     channel: "sms",
     from: params.From,
     body: params.Body ?? "",
     mediaUrl: hasPhoto ? params.MediaUrl0 : null,
   });
 
+  if (analyzeTicketId) {
+    after(() => analyzeTicket(analyzeTicketId).catch((err) => console.error("[sms] analysis failed:", err)));
+  }
   return new Response(twimlMessage(reply), { headers: { "Content-Type": "text/xml" } });
 }

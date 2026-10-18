@@ -29,11 +29,41 @@ export interface Message {
   createdAt: Date;
 }
 
+export type IncidentStatus = "active" | "confirmed" | "resolved";
+
+export interface Incident {
+  id: number;
+  agencyId: string;
+  category: Category;
+  title: string;
+  summary: string;
+  locationText: string | null;
+  lat: number | null;
+  lng: number | null;
+  priority: Priority;
+  priorityReason: string;
+  priorityScore: number;
+  status: IncidentStatus;
+  reportCount: number;
+  firstReportedAt: Date;
+  lastReportedAt: Date;
+  alertMessage: string | null;
+  alertPublishedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type IncidentFields = Pick<
+  Incident,
+  "agencyId" | "category" | "title" | "summary" | "locationText" | "priority" | "priorityReason" | "priorityScore" | "reportCount"
+>;
+
 export interface Ticket {
   id: number;
   conversationId: string;
   phone: string;
   agencyId: string;
+  incidentId: number | null;
   category: Category;
   subcategory: string;
   summary: string;
@@ -207,6 +237,63 @@ export async function listTickets(filter: { phone?: string } = {}): Promise<Tick
   return check(await query, "listTickets").map(toTicket);
 }
 
+// Open incidents with a report in the window, most recently active first.
+export async function listOpenIncidents(withinMs: number, limit: number): Promise<Incident[]> {
+  const rows = check(
+    await db()
+      .from("incidents")
+      .select("*")
+      .in("status", ["active", "confirmed"])
+      .gte("last_reported_at", new Date(Date.now() - withinMs).toISOString())
+      .order("last_reported_at", { ascending: false })
+      .limit(limit),
+    "listOpenIncidents",
+  );
+  return rows.map(toIncident);
+}
+
+export async function getIncident(id: number): Promise<Incident | null> {
+  const row = check(await db().from("incidents").select("*").eq("id", id).maybeSingle(), "getIncident");
+  return row ? toIncident(row) : null;
+}
+
+function incidentRow(fields: Partial<IncidentFields>): Record<string, unknown> {
+  const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (fields.agencyId !== undefined) row.agency_id = fields.agencyId;
+  if (fields.category !== undefined) row.category = fields.category;
+  if (fields.title !== undefined) row.title = fields.title;
+  if (fields.summary !== undefined) row.summary = fields.summary;
+  if (fields.locationText !== undefined) row.location_text = fields.locationText;
+  if (fields.priority !== undefined) row.priority = fields.priority;
+  if (fields.priorityReason !== undefined) row.priority_reason = fields.priorityReason;
+  if (fields.priorityScore !== undefined) row.priority_score = fields.priorityScore;
+  if (fields.reportCount !== undefined) row.report_count = fields.reportCount;
+  return row;
+}
+
+export async function createIncident(fields: IncidentFields): Promise<Incident> {
+  const row = check(await db().from("incidents").insert(incidentRow(fields)).select().single(), "createIncident");
+  return toIncident(row);
+}
+
+// A new report bumps last_reported_at; pass reported=false for edits that aren't a new report.
+export async function updateIncident(id: number, fields: Partial<IncidentFields>, reported = true): Promise<Incident> {
+  const row = incidentRow(fields);
+  if (reported) row.last_reported_at = row.updated_at;
+  const updated = check(await db().from("incidents").update(row).eq("id", id).select().single(), "updateIncident");
+  return toIncident(updated);
+}
+
+export async function linkTicketToIncident(ticketId: number, incidentId: number): Promise<void> {
+  check(
+    await db()
+      .from("tickets")
+      .update({ incident_id: incidentId, analyzed_at: new Date().toISOString() })
+      .eq("id", ticketId),
+    "linkTicketToIncident",
+  );
+}
+
 // --- row mappers -------------------------------------------------------------
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -242,6 +329,7 @@ function toTicket(r: any): Ticket {
     conversationId: r.conversation_id,
     phone: r.phone,
     agencyId: r.agency_id,
+    incidentId: r.incident_id,
     category: r.category,
     subcategory: r.subcategory,
     summary: r.summary,
@@ -262,6 +350,30 @@ function toTicket(r: any): Ticket {
     priorityScore: r.priority_score,
     analyzedAt: date(r.analyzed_at),
     status: r.status,
+    createdAt: new Date(r.created_at),
+    updatedAt: new Date(r.updated_at),
+  };
+}
+
+function toIncident(r: any): Incident {
+  return {
+    id: r.id,
+    agencyId: r.agency_id,
+    category: r.category,
+    title: r.title,
+    summary: r.summary,
+    locationText: r.location_text,
+    lat: r.lat,
+    lng: r.lng,
+    priority: r.priority,
+    priorityReason: r.priority_reason,
+    priorityScore: r.priority_score,
+    status: r.status,
+    reportCount: r.report_count,
+    firstReportedAt: new Date(r.first_reported_at),
+    lastReportedAt: new Date(r.last_reported_at),
+    alertMessage: r.alert_message,
+    alertPublishedAt: date(r.alert_published_at),
     createdAt: new Date(r.created_at),
     updatedAt: new Date(r.updated_at),
   };

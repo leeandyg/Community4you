@@ -1,3 +1,5 @@
+import { after } from "next/server";
+import { analyzeTicket } from "@/lib/analyze";
 import { handleMessage } from "@/lib/engine";
 
 export const runtime = "nodejs";
@@ -10,5 +12,9 @@ export async function POST(req: Request) {
     return Response.json({ error: "sessionId and body are required" }, { status: 400 });
   }
   const result = await handleMessage({ channel: "web", from: `web:${sessionId}`, body });
+  if (result.analyzeTicketId) {
+    const id = result.analyzeTicketId;
+    after(() => analyzeTicket(id).catch((err) => console.error("[chat] analysis failed:", err)));
+  }
   return Response.json(result);
 }

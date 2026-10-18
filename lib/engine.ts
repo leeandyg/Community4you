@@ -1,5 +1,6 @@
 import { detectEmergency } from "./emergency";
 import { agencyFor } from "./routing";
+import { BASE_SCORE } from "./scoring";
 import {
   addMessage,
   countRecentTickets,
@@ -36,6 +37,9 @@ export interface EngineReply {
   reply: string;
   ticketId: number | null;
   emergency: boolean;
+  // Set when the report was submitted or updated after submission: the caller
+  // runs analyzeTicket() on it after sending the reply (incident grouping).
+  analyzeTicketId: number | null;
 }
 
 const EMERGENCY_REPLY =
@@ -56,14 +60,14 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
 
   if (command === "NEW") {
     if (convo) await updateConversation(convo.id, { state: "closed" });
-    return { reply: "Okay, starting a new report. What's going on, and where?", ticketId: null, emergency: false };
+    return { reply: "Okay, starting a new report. What's going on, and where?", ticketId: null, emergency: false, analyzeTicketId: null };
   }
 
   const emergencyKeyword = detectEmergency(text);
 
   // Cap new reports per number (floods, spam bots). Emergencies always get through.
   if (!convo && !emergencyKeyword && (await countRecentTickets(msg.from, HOUR_MS)) >= REPORTS_PER_HOUR) {
-    return { reply: RATE_LIMIT_REPLY, ticketId: null, emergency: false };
+    return { reply: RATE_LIMIT_REPLY, ticketId: null, emergency: false, analyzeTicketId: null };
   }
 
   convo ??= await createConversation(msg.from, msg.channel);
@@ -97,7 +101,9 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
     updateConversation(conversation.id, { ...patch, ticketId: ticket?.id ?? conversation.ticketId }),
     addMessage(conversation.id, "bot", reply),
   ]);
-  return { reply, ticketId: ticket?.id ?? null, emergency };
+  const submitted = patch.state === "submitted" || conversation.state === "submitted";
+  const analyzeTicketId = ticket && submitted && ticket.credibility !== "spam" ? ticket.id : null;
+  return { reply, ticketId: ticket?.id ?? null, emergency, analyzeTicketId };
 }
 
 type ConversationPatch = Parameters<typeof updateConversation>[1];
@@ -137,9 +143,6 @@ function nextReply(
   };
 }
 
-// Dashboard sort key before cross-ticket analysis adjusts it (see ARCHITECTURE.md).
-const BASE_SCORE = { CRITICAL: 100, HIGH: 70, MEDIUM: 40, LOW: 10 } as const;
-
 function ticketFields(result: TriageResult, emergency: boolean, mediaUrl: string | null): TicketFields {
   const priority = emergency ? "CRITICAL" : result.priority;
   const spam = result.credibility === "spam" && !emergency;
@@ -167,9 +170,9 @@ function ticketFields(result: TriageResult, emergency: boolean, mediaUrl: string
 async function statusReply(from: string): Promise<EngineReply> {
   const tickets = await listTickets({ phone: from });
   if (tickets.length === 0) {
-    return { reply: "You don't have any reports yet. Text us what's happening and where.", ticketId: null, emergency: false };
+    return { reply: "You don't have any reports yet. Text us what's happening and where.", ticketId: null, emergency: false, analyzeTicketId: null };
   }
   const label = { new: "received", in_progress: "in progress", resolved: "resolved" } as const;
   const lines = tickets.slice(0, 3).map((t) => `#${t.id} ${t.subcategory}: ${label[t.status]}`);
-  return { reply: `Your reports:\n${lines.join("\n")}`, ticketId: null, emergency: false };
+  return { reply: `Your reports:\n${lines.join("\n")}`, ticketId: null, emergency: false, analyzeTicketId: null };
 }
