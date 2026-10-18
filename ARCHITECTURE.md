@@ -212,9 +212,9 @@ All routes live on the backend and allow requests from the dashboard's address.
 | B5 | **Incidents**: `analyze.ts` attaches each submitted report to an open incident or starts one, merges the summary, re-prioritizes with corroboration (no coordinates needed) | done | dashboard D3 |
 | B6 | `/api/incidents/:id` (confirm / resolve → texts every reporter) and `/api/tickets/:id` status + message routes | done | dashboard D6 |
 | B7 | `/api/insights` (stats + AI summary) | done | dashboard D7 |
-| B8 | Deploy to Vercel, register the phone's webhook once | | demo |
+| B8 | Deploy to Vercel, register the phone's webhook once | backend https://community4you.vercel.app and dashboard https://community4you-xaix.vercel.app live (both auto-deploy on push); phone webhook pending | demo |
 
-**Dashboard (teammate):**
+**Dashboard (teammate):** step-by-step guide in [agency-dashboard/TODO.md](agency-dashboard/TODO.md).
 
 | # | Task | Notes |
 |---|---|---|
