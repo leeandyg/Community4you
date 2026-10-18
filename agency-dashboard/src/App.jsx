@@ -12,6 +12,9 @@ const categoryNames = {
   ANIMAL_CONTROL: "Animal control",
 };
 const credibilityLabels = { ok: "✓ Credible", suspicious: "⚠ Suspicious", spam: "⛔ Spam" };
+const BASE_TITLE = document.title;
+// After a reload, the notification feed starts with this much recent activity.
+const RECENT_MS = 2 * 60 * 60 * 1000;
 
 async function api(path, method = "GET", body) {
   const response = await fetch(`${API}${path}`, {
@@ -68,7 +71,7 @@ async function fetchMessages(conversationId) {
 }
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState(() => readTheme() !== "light");
+  const [darkMode, setDarkMode] = useState(() => readSetting("c4y-theme") !== "light");
   const [incidents, setIncidents] = useState([]);
   const [agencies, setAgencies] = useState([]);
   const [tickets, setTickets] = useState([]);
@@ -88,14 +91,18 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  // Live notifications: the feed, how many are unread, the latest as a toast,
-  // and which cards just arrived (they flash once).
+  // Live notifications: the feed, how many are unread, the banner for the
+  // latest arrivals, and which cards just arrived (they flash once).
   const [notifications, setNotifications] = useState([]);
   const [unread, setUnread] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
   const [bellRing, setBellRing] = useState(0);
-  const [toast, setToast] = useState(null);
+  const [banner, setBanner] = useState(null);
   const [fresh, setFresh] = useState(() => new Set());
+  // Sound is opt-in (browsers only allow audio after a click). The ref lets the
+  // realtime callbacks read the current choice.
+  const [soundEnabled, setSoundEnabled] = useState(() => readSetting("c4y-sound") === "on");
+  const soundOn = useRef(soundEnabled);
   // What the last refresh contained, so the next one can tell what's new.
   const seen = useRef({ incidents: null, flagged: null });
 
@@ -153,12 +160,16 @@ export default function App() {
       setNotifications((list) => [...events, ...list].slice(0, 40));
       setUnread((count) => count + events.length);
       setBellRing((count) => count + 1);
-      setToast(events[0]);
-      window.setTimeout(() => setToast((current) => (current?.id === events[0].id ? null : current)), 6000);
+      setBanner((current) => nextBanner(current, events));
+      if (soundOn.current) playChime(events.some(isUrgent) ? "urgent" : events.some((item) => item.kind === "incident") ? "incident" : "soft");
       const keys = events.map((item) => item.target);
       setFresh((current) => new Set([...current, ...keys]));
       window.setTimeout(() => setFresh((current) => new Set([...current].filter((key) => !keys.includes(key)))), 4000);
     };
+    // First load: recent activity goes in the feed as already read, so a
+    // reload never empties it.
+    const backfill = (items) =>
+      setNotifications((list) => [...list, ...items].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 40));
     const refreshIncidents = () =>
       fetchDashboard()
         .then((data) => {
@@ -167,6 +178,7 @@ export default function App() {
           setIncidents(data.incidents);
           setAgencies(data.agencies);
           if (previous) announce(incidentEvents(previous, data.incidents));
+          else backfill(recentIncidentEvents(data.incidents));
         })
         .catch((loadError) => setError(loadError.message))
         .finally(() => setLoading(false));
@@ -177,17 +189,48 @@ export default function App() {
           seen.current.flagged = new Set(rows.map((item) => item.id));
           setFlagged(rows);
           if (previous) announce(flaggedEvents(previous, rows));
+          else backfill(recentFlaggedEvents(rows));
         })
         .catch((loadError) => setError(loadError.message));
-    refreshIncidents();
-    refreshFlagged();
+    const refreshAll = () => { refreshIncidents(); refreshFlagged(); };
+    refreshAll();
+    // Realtime misses events while its socket is down (background tabs often
+    // drop it), so catch up on reconnect, when the tab comes back, and every minute.
+    let joined = false;
     const channel = supabase
       .channel("dashboard-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "incidents" }, refreshIncidents)
       .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, refreshFlagged)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        if (joined) refreshAll();
+        joined = true;
+      });
+    const onVisible = () => { if (document.visibilityState === "visible") refreshAll(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const poll = window.setInterval(refreshAll, 60_000);
+    return () => {
+      supabase.removeChannel(channel);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(poll);
+    };
   }, []);
+
+  // Browsers keep audio locked until the page gets a click or key press.
+  useEffect(() => {
+    const unlock = () => { if (soundOn.current) unlockAudio(); };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  // Unread count in the tab title, so new activity shows from other tabs.
+  useEffect(() => {
+    document.title = unread ? `(${unread}) ${BASE_TITLE}` : BASE_TITLE;
+  }, [unread]);
 
   // Stats + AI briefing for the "Viewing as" agency; refreshed when incidents
   // change (the backend caches the briefing, so this is cheap).
@@ -257,9 +300,17 @@ export default function App() {
   function toggleTheme() {
     setDarkMode((current) => {
       const next = !current;
-      saveTheme(next ? "dark" : "light");
+      saveSetting("c4y-theme", next ? "dark" : "light");
       return next;
     });
+  }
+
+  function toggleSound() {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    soundOn.current = next;
+    saveSetting("c4y-sound", next ? "on" : "off");
+    if (next) { unlockAudio(); playChime("soft"); }
   }
 
   function toggleBell() {
@@ -270,7 +321,7 @@ export default function App() {
   // Jump to what a notification is about, widening the filters if they hide it.
   function openNotification(item) {
     setBellOpen(false);
-    setToast(null);
+    setBanner(null);
     if (item.kind === "flagged") {
       setView("flagged");
       if (!visibleFlagged.some((ticket) => ticket.id === item.targetId)) {
@@ -422,12 +473,34 @@ export default function App() {
               onOpen={openNotification}
               onClear={() => { setNotifications([]); setUnread(0); }}
             />
+            <button className={`sound-toggle ${soundEnabled ? "on" : ""}`} onClick={toggleSound} aria-pressed={soundEnabled} aria-label={soundEnabled ? "Mute notification sounds" : "Turn on notification sounds"} title={soundEnabled ? "Sound on" : "Sound off"}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M11 5 6 9H2v6h4l5 4z"/>
+                {soundEnabled ? <path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/> : <path d="m22 9-6 6M16 9l6 6"/>}
+              </svg>
+            </button>
             <button className="theme-toggle" onClick={toggleTheme} aria-label={darkMode ? "Use light mode" : "Use dark mode"}>
               {darkMode ? "☀ Light" : "☾ Dark"}
             </button>
             <span className="avatar">MM</span>
           </div>
         </header>
+        <div className="banner-slot">
+          {banner && (
+            <div key={banner.key} className={`banner ${banner.lead.kind} ${banner.urgent ? "urgent" : ""}`} role={banner.urgent ? "alert" : "status"}>
+              <span className="toast-icon">{notificationIcons[banner.lead.kind]}</span>
+              <p>
+                <strong>{banner.lead.title}</strong>
+                <span>{banner.lead.text}</span>
+                {banner.count > 1 && <em>+{banner.count - 1} more</em>}
+              </p>
+              <button className="banner-view" onClick={() => openNotification(banner.lead)}>View</button>
+              <button className="banner-close" aria-label="Dismiss" onClick={() => setBanner(null)}>×</button>
+              {/* Routine banners leave on their own (paused while hovered); urgent ones stay until handled. */}
+              {!banner.urgent && <i key={banner.id} className="banner-timer" onAnimationEnd={() => setBanner(null)}/>}
+            </div>
+          )}
+        </div>
         {error && <div className="error">{error}</div>}
         {notice && <div className="notice">✓ {notice}</div>}
 
@@ -502,7 +575,12 @@ export default function App() {
               <Stat label="Resolved today" value={counts.resolvedLast24h ?? "—"} sub="Community impact" tone="green"/>
             </section>
 
-            {insights?.summary && <section className="notice"><strong>AI shift briefing:</strong> {insights.summary}</section>}
+            {insights?.summary && (
+              <section className="briefing">
+                <small><span aria-hidden="true">✦</span> RECOMMENDATION</small>
+                <p>{insights.summary}</p>
+              </section>
+            )}
 
             <div className="command-grid">
               <section className="queue card">
@@ -581,12 +659,6 @@ export default function App() {
         )}
       </main>
 
-      {toast && (
-        <button key={toast.id} className={`toast ${toast.kind} ${toast.priority === "CRITICAL" ? "urgent" : ""}`} onClick={() => openNotification(toast)}>
-          <span className="toast-icon">{notificationIcons[toast.kind]}</span>
-          <span><strong>{toast.title}</strong><small>{toast.text}</small></span>
-        </button>
-      )}
     </div>
   );
 }
@@ -597,10 +669,10 @@ function NotificationBell({ open, unread, ring, items, onToggle, onOpen, onClear
   return (
     <div className="bell-wrap">
       <button className={`bell ${unread ? "has-unread" : ""}`} onClick={onToggle} aria-label={`Notifications${unread ? `, ${unread} new` : ""}`} aria-expanded={open}>
-        <svg key={ring} className={`bell-icon ${ring ? "ring" : ""}`} viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg key={`ring-${ring}`} className={`bell-icon ${ring ? "ring" : ""}`} viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
         </svg>
-        {unread > 0 && <b key={unread}>{unread > 9 ? "9+" : unread}</b>}
+        {unread > 0 && <b key={`count-${unread}`}>{unread > 9 ? "9+" : unread}</b>}
       </button>
       {open && (
         <div className="notif-panel">
@@ -634,10 +706,78 @@ function incidentFlag(incident) {
 
 // Notifications are diffs between two refreshes.
 let notificationId = 0;
-function notification(kind, targetId, title, text, priority) {
+function notification(kind, targetId, title, text, priority, at = new Date().toISOString()) {
   notificationId += 1;
   const target = `${kind === "flagged" ? "ticket" : "incident"}-${targetId}`;
-  return { id: notificationId, kind, targetId, target, title, text, priority, at: new Date().toISOString() };
+  return { id: notificationId, kind, targetId, target, title, text, priority, at };
+}
+
+const isUrgent = (item) => item.priority === "CRITICAL";
+
+// Events arriving while a banner is up join it ("+2 more"). An urgent event
+// takes the lead and makes the banner stay until it's handled.
+function nextBanner(current, events) {
+  const urgent = events.find(isUrgent);
+  return {
+    key: current?.key ?? events[0].id,
+    id: events[0].id,
+    lead: urgent || (current?.urgent ? current.lead : events[0]),
+    urgent: Boolean(urgent || current?.urgent),
+    count: (current?.count || 0) + events.length,
+  };
+}
+
+function recentIncidentEvents(incidents) {
+  const since = Date.now() - RECENT_MS;
+  const events = [];
+  for (const incident of incidents) {
+    if (Date.parse(incident.created_at) >= since) {
+      events.push(notification("incident", incident.id, `New incident #${incident.id}`, `${incident.priority} · ${incident.title}`, incident.priority, incident.created_at));
+    } else if (incident.report_count > 1 && Date.parse(incident.last_reported_at) >= since) {
+      events.push(notification("report", incident.id, `New report on incident #${incident.id}`, `${incident.title} · ${incident.report_count} reports`, incident.priority, incident.last_reported_at));
+    }
+  }
+  return events;
+}
+
+function recentFlaggedEvents(rows) {
+  const since = Date.now() - RECENT_MS;
+  return rows
+    .filter((ticket) => Date.parse(ticket.created_at) >= since)
+    .map((ticket) => notification("flagged", ticket.id, `Report #${ticket.id} flagged ${ticket.credibility}`, ticket.summary, ticket.is_emergency ? "CRITICAL" : null, ticket.created_at));
+}
+
+// Notification chimes, synthesized so there are no sound files to ship.
+let audio = null;
+function unlockAudio() {
+  try {
+    audio ??= new AudioContext();
+    if (audio.state === "suspended") audio.resume();
+  } catch {
+    audio = null; // no Web Audio; stay silent
+  }
+}
+
+const CHIMES = {
+  soft: [[740, 0]],
+  incident: [[660, 0], [880, 0.14]],
+  urgent: [[880, 0], [880, 0.18], [880, 0.36]],
+};
+function playChime(kind) {
+  if (!audio) return;
+  const start = audio.currentTime;
+  for (const [frequency, offset] of CHIMES[kind]) {
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+    oscillator.type = kind === "urgent" ? "triangle" : "sine";
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(0.0001, start + offset);
+    gain.gain.exponentialRampToValueAtTime(0.16, start + offset + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.35);
+    oscillator.connect(gain).connect(audio.destination);
+    oscillator.start(start + offset);
+    oscillator.stop(start + offset + 0.4);
+  }
 }
 
 function incidentEvents(previous, incidents) {
@@ -684,13 +824,13 @@ function Setup() {
   return <main className="setup"><span>C4Y</span><h1>Connect the agency dashboard</h1><p>Create <code>agency-dashboard/.env.local</code> with the Supabase URL, publishable key and deployed API URL.</p></main>;
 }
 
-// localStorage can throw (blocked storage, some private modes); the theme is
-// just a convenience, so fall back to the default instead of crashing.
-function readTheme() {
-  try { return localStorage.getItem("c4y-theme"); } catch { return null; }
+// localStorage can throw (blocked storage, some private modes); theme and
+// sound are just conveniences, so fall back to the default instead of crashing.
+function readSetting(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
 }
-function saveTheme(theme) {
-  try { localStorage.setItem("c4y-theme", theme); } catch { /* not saved; fine */ }
+function saveSetting(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* not saved; fine */ }
 }
 
 function maskPhone(phone = "") {
