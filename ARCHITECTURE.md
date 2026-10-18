@@ -55,7 +55,7 @@ Agencies see tickets appear live on a dashboard, and changing a ticket's status 
 - **Twilio:** the trial only sends template messages, and texting real US phones needs carrier registration that takes days to weeks.
 - **iMessage through a Mac:** macOS 26 breaks the usual way to send messages from a script.
 
-The Twilio webhook (`/api/sms`) is still in the code but unused.
+(The Twilio code was removed.)
 
 ---
 
@@ -135,10 +135,10 @@ Resident's phone ──SMS──► Android phone (SMS Gateway app) ──webhoo
 - an emergency report always makes its incident CRITICAL; `spam` tickets score 0 and get no incident
 
 **Conversation rules** (`lib/engine.ts`, done):
-- The bot asks at most 2 follow-up questions, then submits.
+- The bot asks at most 2 follow-up questions, then submits: first the location if missing, then the key detail for the category (animal behavior, traffic/hazard, happening now, amount/hazard, the person's wellbeing and needs).
 - The ticket is saved on every message, so it fills in live on the dashboard.
 - **Emergency:** the bot replies "CALL 911 NOW", the ticket becomes CRITICAL, and it stays flagged.
-- A text after submitting adds to the same ticket.
+- A text after submitting is classified (`lib/followup.ts`): **more info** is added to the same ticket; a **new problem** starts a fresh report; **"thanks"/"ok"** gets a short acknowledgement with no triage. More info about a **resolved** report starts a fresh report, so it isn't lost on a closed ticket.
 - **Commands:** `STATUS` and `NEW`.
 - If the AI fails, a canned reply goes out.
 - Follow-up questions are asked in the resident's language.
@@ -246,7 +246,6 @@ All routes live on the backend and allow requests from the dashboard's address.
 app/api/
   smsgate/route.ts              [done] Android gateway webhook (main SMS channel)
   chat/route.ts                 [done] web chat → engine
-  sms/route.ts                  [done, unused] Twilio webhook
   incidents/[id]/route.ts       [done] PATCH confirm / resolve
   tickets/[id]/route.ts         [done] PATCH status
   tickets/[id]/messages/route.ts[done] agency message
@@ -256,7 +255,11 @@ lib/
   engine.ts      [done] conversation rules
   triage.ts      [done] single-tip AI, incl. credibility + suggested_action
   emergency.ts   [done] 911 keyword check
-  routing.ts     [done] category → agency
+  routing.ts     [done] category → agency id (names come from the agencies table)
+  followup.ts    [done] after submission: more info / new problem / "thanks"
+  smsAccess.ts   [done] who the SMS bot answers (allowlist / join keyword)
+  actions.ts     [done] what the dashboard buttons do
+  http.ts        [done] CORS + JSON helpers
   smsgate.ts     [done] gateway send + signature check
   store.ts       [done] Supabase persistence
   geocode.ts     [deferred] add-on with the map
@@ -277,37 +280,34 @@ agency-dashboard/        teammate's Vite + React app
 
 ## Setup
 
-**Backend `.env.local`** (template: `.env.example`):
+**Live:** backend https://community4you.vercel.app, dashboard https://community4you-xaix.vercel.app. Both are Vercel projects on Andy's account, connected to `leeandyg/Community4you`: **any push to `main` deploys both.** Env vars live in each Vercel project (Settings → Environment Variables); redeploy after changing them.
+
+**Backend env vars:** see [.env.example](.env.example) for the full list with comments. Copy it to `.env.local` for local runs.
+- Required: `GEMINI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SMSGATE_USERNAME`, `SMSGATE_PASSWORD`
+- Recommended: `SMSGATE_SIGNING_KEY`, `DASHBOARD_ORIGINS`, `REPORT_PHONE_NUMBER`
+- Optional: `TRIAGE_MODEL`, `TRIAGE_FALLBACK_MODEL`, `ANALYSIS_MODEL`, `REPORTS_PER_HOUR`, `SMS_ALLOWED_NUMBERS`, `SMS_JOIN_KEYWORD`, `SMS_DRY_RUN`
+
+**Dashboard env vars** (`agency-dashboard/.env.local` and the dashboard's Vercel project):
 ```
-GEMINI_API_KEY=            # aistudio.google.com/apikey
-TRIAGE_MODEL=gemini-3.5-flash-lite
-TRIAGE_FALLBACK_MODEL=gemini-3.8-flash
-SMSGATE_USERNAME=          # phone app, Home tab
-SMSGATE_PASSWORD=
-SMSGATE_SIGNING_KEY=       # phone app, Settings → Webhooks
-SUPABASE_URL=              # https://<project>.supabase.co (no /rest/v1)
-SUPABASE_SECRET_KEY=       # sb_secret_...: backend only, never in the dashboard
+VITE_SUPABASE_URL=https://jarmwkvuycptwlyekfve.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=    # sb_publishable_...: safe for the browser
+VITE_API_URL=https://community4you.vercel.app
 ```
 
-**Dashboard `agency-dashboard/.env.local`:**
-```
-VITE_SUPABASE_URL=
-VITE_SUPABASE_PUBLISHABLE_KEY=  # sb_publishable_...: safe for the browser
-VITE_API_URL=http://localhost:3000
-```
+**The Android phone (SMS Gateway for Android, by capcom6):**
+1. Allow its SMS permissions. On Android 15+, *sending* may need "Allow restricted settings" or an ADB grant (see the app's [errors FAQ](https://docs.sms-gate.app/faq/errors/)).
+2. Turn on **Cloud Server** and keep the app **Online**; battery set to **Unrestricted**; plugged in and on Wi-Fi.
+3. Turn off RCS chat on the phone's messaging app, so incoming texts arrive as SMS.
+4. Register the webhook once: `npm run gateway:register -- https://community4you.vercel.app`. The phone picks it up the next time it connects; check it appears in the app under Settings → Webhooks.
 
-**The Android phone:**
-1. Install SMS Gateway for Android (by capcom6) and allow the SMS permissions.
-2. Turn on **Cloud Server** and tap Offline so it changes to Online.
-3. Share the Home-tab username and password, and the Signing Key from Settings → Webhooks.
-4. Turn off battery optimization for the app, and keep the phone plugged in and on Wi-Fi.
+**Database:** schema in [supabase/schema.sql](supabase/schema.sql), sample data in [supabase/seed.sql](supabase/seed.sql). To reset all data to the sample set (and refresh its timestamps), paste `seed.sql` into Supabase → SQL Editor → Run. `schema.sql` drops and recreates every table, so only run it when the schema changes.
 
-**Running locally:**
+**Local development:**
 ```
-npm run dev                                       # backend on :3000
-ngrok http 3000
-npm run gateway:register -- https://<ngrok-url>   # re-run whenever the ngrok URL changes
-cd agency-dashboard && npm run dev                # dashboard on :5173
+npm run dev                          # backend on :3000 (against the real Supabase)
+npm run chat                         # text the bot from the terminal; never sends real SMS
+CHAT_FROM=+15555550142 npm run chat  # act as a different phone number
+cd agency-dashboard && npm run dev   # dashboard on :5173
 ```
 
 ---
@@ -340,4 +340,3 @@ cd agency-dashboard && npm run dev                # dashboard on :5173
 | Duplicate detection without coordinates (map deferred) | Candidates are open tickets in the same category from the last 48 h; the AI compares location text and descriptions. Add distance filtering when geocoding lands. |
 | The duplicate-text check is held in memory per server instance (Vercel) | Rare at demo volume. Move it to a database table if it shows up. |
 | Schema changes break the other app | Only add columns, and announce each one. |
-| The ngrok URL changes | Re-run `gateway:register`, or deploy to Vercel. |

@@ -1,20 +1,16 @@
 import type { Category } from "./triage";
 
-export interface Agency {
-  id: string;
-  name: string;
-  categories: Category[];
-}
+// Each category goes to exactly one (mock) agency. Only the stable ids live
+// here; display names come from the agencies table (store.getAgencyName), so
+// they can be changed to official names without a code change.
+const AGENCY_BY_CATEGORY: Record<Category, string> = {
+  INFRASTRUCTURE: "streets",
+  PUBLIC_SAFETY: "police",
+  ENVIRONMENTAL: "sanitation",
+  HUMAN_SERVICES: "outreach",
+  ANIMAL_CONTROL: "animals",
+};
 
-// Mock jurisdictions: one agency per category bucket.
-export const AGENCIES: Agency[] = [
-  { id: "streets", name: "LA Streets & 311", categories: ["INFRASTRUCTURE"] },
-  { id: "police", name: "LAPD Non-Emergency", categories: ["PUBLIC_SAFETY"] },
-  { id: "sanitation", name: "LA Sanitation & Environment", categories: ["ENVIRONMENTAL"] },
-  { id: "outreach", name: "Community Food & Shelter Network", categories: ["HUMAN_SERVICES"] },
-  { id: "animals", name: "LA Animal Services", categories: ["ANIMAL_CONTROL"] },
-];
-
-export function agencyFor(category: Category): Agency {
-  return AGENCIES.find((a) => a.categories.includes(category)) ?? AGENCIES[0];
+export function agencyIdFor(category: Category): string {
+  return AGENCY_BY_CATEGORY[category];
 }

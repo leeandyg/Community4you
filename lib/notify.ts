@@ -13,8 +13,8 @@ export async function notifyReporter(
   // Bumping the conversation keeps it open, so the resident's reply lands on the same report.
   await Promise.all([addMessage(conversationId, sender, body), updateConversation(conversationId, {})]);
   if (phone.startsWith("web:")) return;
-  if (!process.env.SMSGATE_USERNAME) {
-    console.warn(`[notify] SMS gateway not configured; not texting ${phone}: ${body}`);
+  if (process.env.SMS_DRY_RUN || !process.env.SMSGATE_USERNAME) {
+    console.warn(`[notify] not texting ${phone} (dry run or no gateway configured): ${body}`);
     return;
   }
   await sendGatewaySms(phone, body);

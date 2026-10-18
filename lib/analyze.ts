@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { FLASH_MODEL, generateJson, LITE_MODEL } from "./gemini";
 import { notifyReporter } from "./notify";
-import { agencyFor } from "./routing";
+import { agencyIdFor } from "./routing";
 import { incidentScore } from "./scoring";
 import {
   createIncident,
@@ -96,7 +96,7 @@ export async function analyzeTicket(ticketId: number): Promise<AnalysisOutcome |
 
   const incident = matched
     ? await updateIncident(matched.id, fields)
-    : await createIncident({ ...fields, category: ticket.category, agencyId: agencyFor(ticket.category).id });
+    : await createIncident({ ...fields, category: ticket.category, agencyId: agencyIdFor(ticket.category) });
   await linkTicketToIncident(ticket.id, incident.id);
 
   const joinedExisting = Boolean(matched && !current);

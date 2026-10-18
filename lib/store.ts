@@ -375,9 +375,15 @@ export async function listAgencies(): Promise<{ id: string; name: string }[]> {
 }
 
 // Display name from the agencies table (names may be edited to official ones).
+// Cached for a minute: it's read on most replies and rarely changes.
+const AGENCY_NAME_TTL_MS = 60 * 1000;
+let agencyNames: { at: number; names: Map<string, string> } | null = null;
 export async function getAgencyName(id: string): Promise<string> {
-  const row = check(await db().from("agencies").select("name").eq("id", id).maybeSingle(), "getAgencyName");
-  return (row as { name: string } | null)?.name ?? id;
+  if (!agencyNames || Date.now() - agencyNames.at > AGENCY_NAME_TTL_MS) {
+    const rows = check(await db().from("agencies").select("id, name"), "getAgencyName") as { id: string; name: string }[];
+    agencyNames = { at: Date.now(), names: new Map(rows.map((r) => [r.id, r.name])) };
+  }
+  return agencyNames.names.get(id) ?? id;
 }
 
 // --- row mappers -------------------------------------------------------------

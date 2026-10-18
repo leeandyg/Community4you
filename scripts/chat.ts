@@ -4,6 +4,8 @@
 // Also accepts piped input, one message per line: npm run chat < scenario.txt
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
+// Never send real texts from local testing (e.g. "Others have reported this too" to fake numbers).
+process.env.SMS_DRY_RUN ??= "1";
 
 import * as readline from "node:readline";
 

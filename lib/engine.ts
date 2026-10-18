@@ -1,12 +1,13 @@
 import { detectEmergency } from "./emergency";
 import { classifyFollowUp } from "./followup";
-import { agencyFor } from "./routing";
+import { agencyIdFor } from "./routing";
 import { BASE_SCORE } from "./scoring";
 import {
   addMessage,
   countRecentTickets,
   createConversation,
   findRecentConversation,
+  getAgencyName,
   getTicket,
   listMessages,
   listTickets,
@@ -70,17 +71,23 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
   if (convo?.state === "submitted" && convo.ticketId != null) {
     const [submitted, recent] = await Promise.all([getTicket(convo.ticketId), listMessages(convo.id)]);
     const kind = submitted ? await classifyFollowUp(submitted, recent, text) : "more_info";
-    if (kind === "new_problem") {
-      await updateConversation(convo.id, { state: "closed" });
-      convo = null; // falls through to a fresh report below
-    } else if (kind === "other" && !emergencyKeyword) {
-      const reply = `Got it. Report #${convo.ticketId} is open. Reply STATUS for updates or NEW to report something else.`;
+    const resolved = submitted?.status === "resolved";
+    if (kind === "other" && !emergencyKeyword) {
+      const reply = resolved
+        ? `You're welcome! Report #${convo.ticketId} is resolved. Text us anytime about a new problem.`
+        : `Got it. Report #${convo.ticketId} is open. Reply STATUS for updates or NEW to report something else.`;
       await Promise.all([
         addMessage(convo.id, "reporter", text, msg.mediaUrl ?? null),
         addMessage(convo.id, "bot", reply),
         updateConversation(convo.id, {}),
       ]);
       return { reply, ticketId: convo.ticketId, emergency: false, analyzeTicketId: null };
+    }
+    // A new problem, or more about one that's already resolved ("it's broken again"):
+    // start a fresh report so agencies see it instead of it landing on a closed ticket.
+    if (kind === "new_problem" || resolved) {
+      await updateConversation(convo.id, { state: "closed" });
+      convo = null; // falls through to a fresh report below
     }
   }
 
@@ -112,8 +119,12 @@ export async function handleMessage(msg: InboundMessage): Promise<EngineReply> {
   if (!result) {
     reply = emergency ? EMERGENCY_REPLY : FALLBACK_REPLY;
   } else {
-    ticket = await upsertTicket(conversation, ticketFields(result, emergency, msg.mediaUrl ?? null));
-    ({ reply, patch } = nextReply(conversation, ticket, result, emergency));
+    const [saved, agencyName] = await Promise.all([
+      upsertTicket(conversation, ticketFields(result, emergency, msg.mediaUrl ?? null)),
+      getAgencyName(agencyIdFor(result.category)),
+    ]);
+    ticket = saved;
+    ({ reply, patch } = nextReply(conversation, ticket, result, emergency, agencyName));
   }
 
   await Promise.all([
@@ -132,8 +143,8 @@ function nextReply(
   ticket: Ticket,
   result: TriageResult,
   emergency: boolean,
+  agencyName: string,
 ): { reply: string; patch: ConversationPatch } {
-  const agency = agencyFor(result.category);
 
   if (emergency) {
     return { reply: `${EMERGENCY_REPLY} We've also logged report #${ticket.id}.`, patch: { state: "submitted" } };
@@ -156,7 +167,7 @@ function nextReply(
 
   return {
     reply:
-      `Thanks! Report #${ticket.id} sent to ${agency.name}. ` +
+      `Thanks! Report #${ticket.id} sent to ${agencyName}. ` +
       `We'll text you updates. Reply STATUS to check, NEW to report something else.`,
     patch: { state: "submitted" },
   };
@@ -166,7 +177,7 @@ function ticketFields(result: TriageResult, emergency: boolean, mediaUrl: string
   const priority = emergency ? "CRITICAL" : result.priority;
   const spam = result.credibility === "spam" && !emergency;
   return {
-    agencyId: agencyFor(result.category).id,
+    agencyId: agencyIdFor(result.category),
     category: result.category,
     subcategory: result.subcategory,
     summary: result.summary,
