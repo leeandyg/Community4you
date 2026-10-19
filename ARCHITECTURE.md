@@ -325,7 +325,7 @@ agency-dashboard/
 **Backend env vars:** see [.env.example](.env.example) for the full list with comments. Copy it to `.env.local` for local runs.
 - Required: `GEMINI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SMSGATE_USERNAME`, `SMSGATE_PASSWORD`
 - Recommended: `SMSGATE_SIGNING_KEY`, `DASHBOARD_ORIGINS`, `REPORT_PHONE_NUMBER`
-- Optional: `TRIAGE_MODEL`, `TRIAGE_FALLBACK_MODEL`, `ANALYSIS_MODEL`, `REPORTS_PER_HOUR`, `SMS_ALLOWED_NUMBERS`, `SMS_JOIN_KEYWORD`, `SMS_DRY_RUN`
+- Optional: `TRIAGE_MODEL`, `TRIAGE_FALLBACK_MODEL`, `ANALYSIS_MODEL`, `REPORTS_PER_HOUR`, `SMS_ALLOWED_NUMBERS`, `SMS_JOIN_KEYWORD`, `SMS_DRY_RUN`, `SITE_PASSWORD` (dashboard: `VITE_SITE_PASSWORD`, same value)
 
 **Dashboard env vars** (`agency-dashboard/.env.local` and the dashboard's Vercel project):
 ```

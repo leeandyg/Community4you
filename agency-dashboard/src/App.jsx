@@ -4,6 +4,8 @@ import "./App.css";
 
 // Trailing slashes would make "//api/..." URLs, which the backend redirects without CORS headers.
 const API = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+// Site lock: must match the backend's SITE_PASSWORD (see middleware.js).
+const SITE_PASSWORD = import.meta.env.VITE_SITE_PASSWORD;
 const categoryNames = {
   INFRASTRUCTURE: "Infrastructure",
   PUBLIC_SAFETY: "Public safety",
@@ -19,7 +21,10 @@ const RECENT_MS = 2 * 60 * 60 * 1000;
 async function api(path, method = "GET", body) {
   const response = await fetch(`${API}${path}`, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(SITE_PASSWORD ? { Authorization: `Bearer ${SITE_PASSWORD}` } : {}),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const data = await response.json().catch(() => ({}));

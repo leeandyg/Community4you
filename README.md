@@ -147,7 +147,7 @@ scripts/                chat.ts (terminal chat), register-webhook.ts
    ```
    Phone setup tips (Android 15 permissions, turning off RCS, battery settings) are in [ARCHITECTURE.md → Setup](ARCHITECTURE.md#setup).
 
-All backend settings are documented in [.env.example](.env.example), including who the bot answers (`SMS_ALLOWED_NUMBERS`, `SMS_JOIN_KEYWORD`), the per-number report limit and the AI models.
+All backend settings are documented in [.env.example](.env.example), including who the bot answers (`SMS_ALLOWED_NUMBERS`, `SMS_JOIN_KEYWORD`), the per-number report limit and the AI models. To password-protect both sites and the API, set `SITE_PASSWORD` on the backend and the same value as `VITE_SITE_PASSWORD` on the dashboard.
 
 ## Things to try
 
