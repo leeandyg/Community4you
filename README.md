@@ -2,7 +2,7 @@
 
 **Text a phone number about a neighborhood problem. AI sorts it out and sends it to the right agency.**
 
-Built at TrojanHacks '26.
+Built at TrojanHacks '26. **Winner of Social Good vertical.**
 
 Residents don't know whether a pothole goes to 311, a loose dog goes to Animal Services, or someone sleeping outside in the cold goes to a shelter network. Agencies, for their part, get messy, incomplete and duplicate reports and spend hours sorting them by hand.
 
